@@ -28,6 +28,9 @@ typedef int lcb_http_status_t;
 #include <libcouchbase/durability.h>
 #include <libcouchbase/callbacks.h>
 
+const char *
+lcb_strerror(lcb_t, lcb_error_t);
+
 lcb_error_t
 lcb_create(lcb_t*, struct lcb_create_st *);
 
@@ -48,6 +51,9 @@ lcb_remove(lcb_t, const void *, lcb_size_t, const lcb_remove_cmd_t **);
 
 lcb_error_t
 lcb_unlock(lcb_t, const void *, lcb_size_t, const lcb_unlock_cmd_t **);
+
+lcb_error_t
+lcb_arithmetic(lcb_t, const void *, lcb_size_t, const lcb_arithmetic_cmd_t **);
 """
 
 VERIFY_INPUT=b"""
@@ -60,10 +66,12 @@ VERIFY_INPUT=b"""
 
 CPP_OUTPUT = os.path.join(os.path.dirname(__file__), "_lcb.h")
 
+LCB_ROOT = '/sources/libcouchbase/inst/'
+
 def _exec_cpp():
     po = subprocess.Popen((
         'cpp', '-E', '-Wall', '-Wextra',
-        '-I/sources/libcouchbase/inst/include',
+        '-I{0}/include'.format(LCB_ROOT),
         '-xc',
         '-std=c89',
         '-',
@@ -97,7 +105,26 @@ def get_handle():
     ffi.cdef(open(CPP_OUTPUT, "r").read())
     C = ffi.verify(VERIFY_INPUT,
                    libraries=['couchbase'],
-                   library_dirs=['/sources/libcouchbase/inst/lib'],
-                   include_dirs=['/sources/libcouchbase/inst/include'])
+                   library_dirs=[os.path.join(LCB_ROOT, 'lib')],
+                   include_dirs=[os.path.join(LCB_ROOT, 'include')],
+                   runtime_library_dirs=[os.path.join(LCB_ROOT, 'lib')])
 
     return (ffi, C)
+
+
+CALLBACK_DECLS = {
+    'store':
+        'void(lcb_t,const void*,lcb_storage_t,lcb_error_t,const lcb_store_resp_t*)',
+    'get':
+        'void(lcb_t,const void*,lcb_error_t,const lcb_get_resp_t*)',
+    'delete':
+        'void(lcb_t,const void*,lcb_error_t,const lcb_remove_resp_t*)',
+    'arith':
+        'void(lcb_t,const void*,lcb_error_t,const lcb_arithmetic_resp_t*)',
+    'error':
+        'void(lcb_t,lcb_error_t,const char*)',
+    'touch':
+        'void(lcb_t,const void*,lcb_error_t,const lcb_touch_resp_t*)',
+    'unlock':
+        'void(lcb_t,const void*,lcb_error_t,const lcb_unlock_resp_t*)'
+}

@@ -1,3 +1,6 @@
 *.c
 *__pycache__*
 *.pyc
+couchbase_ffi/_lcb.h
+build/
+dist/
