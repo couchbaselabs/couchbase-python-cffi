@@ -4,11 +4,19 @@ from couchbase.user_constants import *
 from couchbase.exceptions import (
     CouchbaseError,
     ValueFormatError,
-    ArgumentError
+    ArgumentError,
+    HTTPError
 )
 
 from couchbase_ffi._cinit import get_handle, CALLBACK_DECLS
-from couchbase_ffi.result import (MultiResult, OperationResult, ValueResult)
+from couchbase_ffi.result import (
+    MultiResult,
+    OperationResult,
+    ValueResult,
+    ObserveInfo,
+    HttpResult
+)
+
 from couchbase_ffi.context import (
     CommandContext,
     GetCommandContext,
@@ -19,6 +27,8 @@ from couchbase_ffi.context import (
     DecrCommandContext,
     TouchCommandContext,
     UnlockCommandContext,
+    ObserveCommandContext,
+    StatsCommandContext,
     Options
 )
 
@@ -89,7 +99,8 @@ def gen_simple():
         ('decr', DecrCommandContext, C.lcb_arithmetic),
         ('delete', RemoveCommandContext, C.lcb_remove),
         ('unlock', UnlockCommandContext, C.lcb_unlock),
-        ('touch', TouchCommandContext, C.lcb_touch)
+        ('touch', TouchCommandContext, C.lcb_touch),
+        ('observe', ObserveCommandContext, C.lcb_observe)
     )
 
     d = {}
@@ -134,11 +145,17 @@ class OperationInfo(object):
             self.throw(ValueFormatError.pyexc("Unhashable key", obj=key))
             return
 
-        if not pres.success:
-            self.res.all_ok = False
-            if pres.rc == C.LCB_KEY_ENOENT and self.ctx.quiet or conn.quiet:
-                return
-            self.throw(conn._make_exc(pres.rc, pres))
+        self.update_single(pres, conn)
+
+    def update_single(self, pres, conn):
+        if not pres.rc:
+            return
+
+        self.res.all_ok = False
+        if pres.rc == C.LCB_KEY_ENOENT and self.ctx.quiet or conn.quiet:
+            return
+
+        self.throw(conn._make_exc(pres.rc, pres))
 
     def mkret(self, is_multi):
         if is_multi:
@@ -214,6 +231,9 @@ class Connection(_ExtConnection):
         C.lcb_set_touch_callback(self._instance, self._bound_cb['touch'])
         C.lcb_set_unlock_callback(self._instance, self._bound_cb['unlock'])
         C.lcb_set_error_callback(self._instance, self._bound_cb['error'])
+        C.lcb_set_stat_callback(self._instance, self._bound_cb['stats'])
+        C.lcb_set_observe_callback(self._instance, self._bound_cb['observe'])
+        C.lcb_set_http_complete_callback(self._instance, self._bound_cb['htdone'])
 
     def __init__(self, **kwargs):
         kwargs['unlock_gil'] = False
@@ -240,7 +260,13 @@ class Connection(_ExtConnection):
             'touch': ffi.callback(CALLBACK_DECLS['touch'],
                                   self._opres_callback),
             'unlock': ffi.callback(CALLBACK_DECLS['unlock'],
-                                   self._unlock_callback)
+                                   self._unlock_callback),
+            'stats': ffi.callback(CALLBACK_DECLS['stats'],
+                                  self._stats_callback),
+            'observe': ffi.callback(CALLBACK_DECLS['observe'],
+                                    self._observe_callback),
+            'htdone': ffi.callback(CALLBACK_DECLS['http'],
+                                   self._http_complete_callback)
         }
 
         self._cur = OperationInfo()
@@ -273,8 +299,9 @@ class Connection(_ExtConnection):
     @pycbc_cpy('rget_multi')
     def rget_multi(self, *args, **kwargs): pass
 
-    @pycbc_cpy('stats')
-    def stats(self, *args, **kwargs): pass
+    def _stats(self, keys):
+        ctx = StatsCommandContext(self, keys)
+        return self._invoke_common(C.lcb_server_stats, ctx, True)
 
     def _get_response_key(self, resp):
         key = ffi.buffer(resp.v.v0.key, resp.v.v0.nkey)[:]
@@ -290,6 +317,31 @@ class Connection(_ExtConnection):
             return
 
         self._cur.add_single(pres, key, self)
+
+    def _get_response(self, cres, err, cls):
+        """
+        Used for multi-key callbacks like stats and observe
+        """
+        try:
+            key = self._get_response_key(cres)
+        except Exception as e:
+            self._cur.throw(e)
+            return None
+
+
+        res = self._cur.res.get(key, None)
+        is_new = False
+        if res is None:
+            res = cls()
+            is_new = True
+
+        res.rc = err
+        if is_new:
+            self._add_response(cres, res)
+        else:
+            self._cur.update_single(res, self)
+
+        return res
 
     def _unlock_callback(self, instance, cookie, err, resp):
         res = OperationResult()
@@ -342,6 +394,58 @@ class Connection(_ExtConnection):
         t = (errcode, ffi.string(errmsg) if errmsg else "")
         self._errors.append(t)
 
+    def _observe_callback(self, instance, cookie, err, resp):
+        # Special handling needed here, as this is a multi operation
+        if not resp.v.v0.key:
+            return #NULL
+
+        res = self._get_response(resp, err, ValueResult)
+        if not res:
+            # Error
+            return
+
+        obs_l = res.value
+        if obs_l is None:
+            res.value = []
+            obs_l = res.value
+
+        obs_info = ObserveInfo()
+        obs_info.cas = resp.v.v0.cas
+        obs_info.flags = resp.v.v0.status
+        obs_info.from_master = bool(resp.v.v0.from_master)
+        obs_l.append(obs_info)
+
+    def _stats_callback(self, instance, cookie, err, resp):
+        if not resp.v.v0.server_endpoint:
+            return # Done
+        if err:
+            self._cur.throw(self._make_exc(err))
+            return
+
+        key = ffi.buffer(resp.v.v0.key, resp.v.v0.nkey)[:]
+        val = ffi.buffer(resp.v.v0.bytes, resp.v.v0.nbytes)[:]
+
+        try:
+            val = float(val)
+        except:
+            pass
+
+        server = ffi.string(resp.v.v0.server_endpoint)
+
+        res = self._cur.res
+        d = self._cur.res.setdefault(key, {})
+        d[server] = val
+
+    def _endure_callback(self, instance, cookie, err, resp):
+        if err == C.LCB_SUCCESS:
+            err = resp.v.v0.err
+
+        res = self._get_response(resp, err, OperationResult)
+        if not res:
+            return
+
+        # Not very exciting, is it.. eh?
+
     def _make_exc(self, rc, res=None):
         cls = CouchbaseError.rc_to_exctype(rc)
         exc = cls("")
@@ -372,3 +476,92 @@ class Connection(_ExtConnection):
 
     # Generate the simple getters
     locals().update(gen_simple())
+
+    ### HTTP API ###
+    def _http_complete_callback(self, htreq, instance, cookie, err, resp):
+        res = HttpResult()
+        cres = resp.v.v0
+
+        res.htcode = cres.status
+        res.rc = err
+        priv = self._cur.res._priv
+
+        # Get the headers?
+        if priv['want_headers']:
+            kvp = ffi.cast('char**', cres.headers)
+            if kvp:
+                curix = 0
+                while kvp[curix] != ffi.NULL:
+                    hdrname = ffi.string(kvp[curix])
+                    hdrval = ffi.string(kvp[curix+1])
+                    res.headers[hdrname] = hdrval
+                    curix += 2
+
+        fmt = priv['format']
+
+        if cres.bytes:
+            s_buf = ffi.buffer(cres.bytes, cres.nbytes)[:]
+            try:
+                res.http_data = self._tc.decode_value(s_buf, fmt)
+            except:
+                res.http_data = s_buf
+
+        self._cur.add_single(res, '', self)
+
+
+    def _http_request(self, type, method, path,
+                      content_type="application/json",
+                      post_data=None,
+                      response_format=FMT_JSON,
+                      quiet=False,
+                      fetch_headers=False,
+                      chunked=False,
+                      rows_per_call=-1):
+
+        self._cur.start(None)
+        cmd = ffi.new('lcb_http_cmd_t*')
+
+        s_path = ffi.new('char[]', path)
+        s_content_type = ffi.new('char[]', content_type)
+        s_body = None
+
+        cmd.version = 0
+        req = cmd.v.v0
+
+        req.path = s_path
+        req.npath = len(path)
+
+        req.content_type = s_content_type
+
+        if post_data:
+            s_body = ffi.new('char[]', post_data)
+            req.body = s_body
+            req.nbody = len(post_data)
+
+        else:
+            req.body = ffi.NULL
+            req.nbody = 0
+
+        req.method = method
+        req.chunked = 0
+
+        self._cur.res._priv = {
+            'format': response_format,
+            'want_headers': fetch_headers
+        }
+
+        htreq_p = ffi.new('lcb_http_request_t*')
+        err = C.lcb_make_http_request(self._instance,
+                                      ffi.NULL, type, cmd, htreq_p)
+
+        if err != C.LCB_SUCCESS:
+            raise self._make_exc(err)
+
+        C.lcb_wait(self._instance)
+        res = self._cur.res.values()[0]
+
+        if not quiet and not res.success:
+            self._cur.rethrow()
+            raise HTTPError.pyexc(res.http_data)
+
+        return res

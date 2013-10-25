@@ -116,12 +116,10 @@ class CommandContext(object):
             return
 
         if isinstance(kv, self._disallowed_types):
-            raise ArgumentError.pyexc(obj=kv,
-                                      message="Bad sequence type")
+            raise ArgumentError.pyexc(obj=kv, message="Bad sequence type")
 
         if not hasattr(kv, '__iter__'):
-            raise ArgumentError.pyexc(obj=kv,
-                                      message="Object is not iterable")
+            raise ArgumentError.pyexc(obj=kv, message="Object is not iterable")
 
         try:
             len(kv)
@@ -368,3 +366,40 @@ class TouchCommandContext(CommandContext):
         options.update(koptions)
 
         self.extract_ttl(req, options)
+
+class ObserveCommandContext(CommandContext):
+    STRUCTNAME = 'lcb_observe_cmd_t'
+
+    def __init__(self, parent, kv, **kwargs):
+        super(ObserveCommandContext, self).__init__(parent, **kwargs)
+        self.build(kv)
+
+    def process_single_command(self, req, koptions):
+        pass
+
+class StatsCommandContext(CommandContext):
+    STRUCTNAME = 'lcb_server_stats_cmd_t'
+
+    def __init__(self, parent, kv, **kwargs):
+        super(StatsCommandContext, self).__init__(parent, **kwargs)
+        if not kv:
+            kv = tuple([""])
+            ncmds = 1
+
+        else:
+            ncmds = len(kv)
+            if not ncmds:
+                raise ArgumentError.pyexc("Empty sequence", obj=kv)
+
+        self.make_struct_pointers(ncmds)
+
+        ix = 0
+        for k_orig in kv:
+            k = ffi.new('char[]', k_orig)
+            self._cdata.append(k)
+            cur_cmd = self._cmdlist[ix]
+            self._cmdpp[ix] = ffi.addressof(cur_cmd)
+            cur_cmd.version = 0
+            cur_cmd.v.v0.name = k
+            cur_cmd.v.v0.nname = len(k_orig)
+            ix += 1

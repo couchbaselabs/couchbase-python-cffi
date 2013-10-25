@@ -20,10 +20,9 @@ typedef uint32_t lcb_uint32_t;
 typedef uint64_t lcb_cas_t;
 typedef uint64_t lcb_uint64_t;
 typedef unsigned long lcb_time_t;
-typedef int lcb_http_method_t;
-typedef int lcb_http_status_t;
 #include <libcouchbase/error.h>
 #include <libcouchbase/types.h>
+#include <libcouchbase/http.h>
 #include <libcouchbase/arguments.h>
 #include <libcouchbase/durability.h>
 #include <libcouchbase/callbacks.h>
@@ -54,6 +53,16 @@ lcb_unlock(lcb_t, const void *, lcb_size_t, const lcb_unlock_cmd_t **);
 
 lcb_error_t
 lcb_arithmetic(lcb_t, const void *, lcb_size_t, const lcb_arithmetic_cmd_t **);
+
+lcb_error_t
+lcb_server_stats(lcb_t, const void *, lcb_size_t, const lcb_server_stats_cmd_t **);
+
+lcb_error_t
+lcb_observe(lcb_t, const void *, lcb_size_t, const lcb_observe_cmd_t **);
+
+lcb_error_t
+lcb_make_http_request(lcb_t, const void *, lcb_http_type_t,
+                      const lcb_http_cmd_t *, lcb_http_request_t*);
 """
 
 VERIFY_INPUT=b"""
@@ -126,5 +135,11 @@ CALLBACK_DECLS = {
     'touch':
         'void(lcb_t,const void*,lcb_error_t,const lcb_touch_resp_t*)',
     'unlock':
-        'void(lcb_t,const void*,lcb_error_t,const lcb_unlock_resp_t*)'
+        'void(lcb_t,const void*,lcb_error_t,const lcb_unlock_resp_t*)',
+    'observe':
+        'void(lcb_t,const void*,lcb_error_t,const lcb_observe_resp_t*)',
+    'stats':
+        'void(lcb_t,const void*,lcb_error_t,const lcb_server_stat_resp_t*)',
+    'http':
+        'void(lcb_http_request_t,lcb_t,const void*,lcb_error_t,const lcb_http_resp_t*)'
 }

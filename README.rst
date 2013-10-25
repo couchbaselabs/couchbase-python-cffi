@@ -36,9 +36,7 @@ The following features have not yet been implemented. They are planned:
 * Durability
 * Replica reads
 * Views
-* Design doc management
 * Context Managers
-* Stats
 * Threading
 
 Twisted and gevent support will never be supported by this module.

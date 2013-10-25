@@ -3,7 +3,7 @@ from couchbase.tests.importer import get_configured_classes
 
 from couchbase_ffi.connection import Connection
 from couchbase_ffi.result import (
-    MultiResult, OperationResult, Result, ValueResult)
+    MultiResult, OperationResult, Result, ValueResult, ObserveInfo)
 
 class ConfigMixin(ApiImplementationMixin):
     factory = Connection
@@ -12,6 +12,7 @@ class ConfigMixin(ApiImplementationMixin):
     cls_ValueResult = ValueResult
     cls_OperationResult = OperationResult
     cls_Result = Result
+    cls_ObserveInfo = ObserveInfo
 
 configured_classes = get_configured_classes(ConfigMixin, implstr='_FFI')
 globals().update(configured_classes)
@@ -22,14 +23,10 @@ globals().update(configured_classes)
 SKIP_NYI = (
     ConnectionEndureTest_FFI,
     ConnectionPipelineTest_FFI,
-    ConnectionObserveTest_FFI,
     ConnectionReplicaGetTest_FFI,
-    ConnectionStatsDetailTest_FFI,
-    ConnectionStatsTest_FFI,
     ConnectionItemTest_FFI,
     ConnectionViewTest_FFI,
-    ConverertSetTest_FFI,
-    DesignDocManagementTest_FFI
+    ConverertSetTest_FFI
 )
 
 for cls in SKIP_NYI:
