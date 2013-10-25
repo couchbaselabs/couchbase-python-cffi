@@ -1,3 +1,5 @@
+import inspect
+
 from couchbase.tests.base import ApiImplementationMixin, SkipTest
 from couchbase.tests.importer import get_configured_classes
 
@@ -25,8 +27,8 @@ SKIP_NYI = (
     ConnectionPipelineTest_FFI,
     ConnectionReplicaGetTest_FFI,
     ConnectionItemTest_FFI,
-    ConnectionViewTest_FFI,
-    ConverertSetTest_FFI
+    ConverertSetTest_FFI,
+    LockmodeTest_FFI
 )
 
 for cls in SKIP_NYI:
@@ -52,3 +54,9 @@ for cls in SKIP_NOT_SUPPORTED:
 
 # Defaults may be different because of GIL handling
 ConnectionMiscTest_FFI.test_connection_defaults = lambda x: None
+
+for k, t in inspect.getmembers(ViewIteratorTest_FFI):
+    if 'streaming' in k:
+        def fn(*args):
+            raise SkipTest("Streaming view not supported in FFI")
+        setattr(ViewIteratorTest_FFI, k, fn)

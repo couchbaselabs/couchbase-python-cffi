@@ -35,7 +35,7 @@ The following features have not yet been implemented. They are planned:
 
 * Durability
 * Replica reads
-* Views
+* ``streaming`` option with Views
 * Context Managers
 * Threading
 

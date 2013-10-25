@@ -90,7 +90,12 @@ class CommandContext(object):
         try:
             k_enc = self._conn._tc.encode_key(key)
             if not k_enc:
-                raise ValueFormatError.pyexc("Key is empty", obj=key)
+                if not key:
+                    excls = ArgumentError
+                else:
+                    excls = ValueFormatError
+
+                raise excls.pyexc("Key is empty", obj=key)
 
             s_key = ffi.new('char[]', k_enc)
 

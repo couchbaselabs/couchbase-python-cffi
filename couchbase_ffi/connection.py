@@ -1,3 +1,5 @@
+from warnings import warn, warn_explicit
+
 from couchbase.transcoder import TranscoderPP
 from couchbase.connection import Connection as _ExtConnection
 from couchbase.user_constants import *
@@ -7,6 +9,7 @@ from couchbase.exceptions import (
     ArgumentError,
     HTTPError
 )
+from couchbase._libcouchbase import PYCBC_CONN_F_WARNEXPLICIT
 
 from couchbase_ffi._cinit import get_handle, CALLBACK_DECLS
 from couchbase_ffi.result import (
@@ -136,9 +139,24 @@ class OperationInfo(object):
         if self.exc:
             raise self.exc
 
+
+    def _warn_dup_key(self, key, conn):
+        msg = "Duplicate key {0} found".format(key)
+        if conn._privflags & PYCBC_CONN_F_WARNEXPLICIT:
+            warn_explicit(msg,
+                          RuntimeWarning,
+                          __file__, -1,
+                          module="couchbase_ffi.connection",
+                          registry={})
+        else:
+            warn(msg, RuntimeWarning)
+
     def add_single(self, pres, key, conn):
         pres.key = key
         try:
+            if key in self.res:
+                self._warn_dup_key(key, conn)
+
             self.res[key] = pres
 
         except TypeError as e:
@@ -517,6 +535,10 @@ class Connection(_ExtConnection):
                       fetch_headers=False,
                       chunked=False,
                       rows_per_call=-1):
+
+
+        if chunked:
+            raise NotImplementedError("Streaming views not supported yet")
 
         self._cur.start(None)
         cmd = ffi.new('lcb_http_cmd_t*')
