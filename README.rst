@@ -40,3 +40,23 @@ The following features have not yet been implemented. They are planned:
 * Threading
 
 Twisted and gevent support will never be supported by this module.
+
+Performance
+-----------
+
+Here are some examples using the ``bench.py`` script in the main Couchbase
+Python distribution.
+
+==============  =======  =======
+--------------  -------  -------
+Implementation  Threads  Ops/Sec
+==============  =======  =======
+FFI (PyPy)      0        8200
+FFI (CPython)   0        4500
+Ext (PyPy)      0        4800
+Ext (CPython)   0        11200
+FFI (PyPy)      4        15300
+FFI (CPython)   4        4600
+Ext (PyPy)      4        4400
+Ext (CPython)   4        27000
+==============  =======  =======
