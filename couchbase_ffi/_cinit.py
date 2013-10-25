@@ -63,6 +63,12 @@ lcb_observe(lcb_t, const void *, lcb_size_t, const lcb_observe_cmd_t **);
 lcb_error_t
 lcb_make_http_request(lcb_t, const void *, lcb_http_type_t,
                       const lcb_http_cmd_t *, lcb_http_request_t*);
+
+lcb_error_t
+lcb_durability_poll(lcb_t, const void *, const lcb_durability_opts_t *,
+                    lcb_size_t, const lcb_durability_cmd_t **);
+
+lcb_int32_t lcb_get_num_replicas(lcb_t);
 """
 
 VERIFY_INPUT=b"""
@@ -141,5 +147,7 @@ CALLBACK_DECLS = {
     'stats':
         'void(lcb_t,const void*,lcb_error_t,const lcb_server_stat_resp_t*)',
     'http':
-        'void(lcb_http_request_t,lcb_t,const void*,lcb_error_t,const lcb_http_resp_t*)'
+        'void(lcb_http_request_t,lcb_t,const void*,lcb_error_t,const lcb_http_resp_t*)',
+    'endure':
+        'void(lcb_t,const void*,lcb_error_t,const lcb_durability_resp_t*)'
 }

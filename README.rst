@@ -33,10 +33,9 @@ TODO
 
 The following features have not yet been implemented. They are planned:
 
-* Durability
 * Replica reads
 * ``streaming`` option with Views
-* Context Managers
+* Pipeline Context Manager
 * Threading
 
 Twisted and gevent support will never be supported by this module.

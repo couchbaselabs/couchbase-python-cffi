@@ -23,7 +23,6 @@ globals().update(configured_classes)
 # These are not yet implemented via cffi
 
 SKIP_NYI = (
-    ConnectionEndureTest_FFI,
     ConnectionPipelineTest_FFI,
     ConnectionReplicaGetTest_FFI,
     ConnectionItemTest_FFI,

@@ -2,6 +2,7 @@ from warnings import warn, warn_explicit
 
 from couchbase.transcoder import TranscoderPP
 from couchbase.connection import Connection as _ExtConnection
+from couchbase.connection import DurabilityContext as _ExtDurContext
 from couchbase.user_constants import *
 from couchbase.exceptions import (
     CouchbaseError,
@@ -32,6 +33,7 @@ from couchbase_ffi.context import (
     UnlockCommandContext,
     ObserveCommandContext,
     StatsCommandContext,
+    DurabilityCommandContext,
     Options
 )
 
@@ -235,6 +237,12 @@ class Connection(_ExtConnection):
     _shadow_props_cls.add('default_format')
     _shadow_props_cls.add('transcoder', _verify_transcoder)
     _shadow_props_cls.add('data_passthrough')
+
+    _shadow_props_cls.add('_dur_persist_to')
+    _shadow_props_cls.add('_dur_replicate_to')
+    _shadow_props_cls.add('_dur_timeout')
+    _shadow_props_cls.add('_dur_testhook')
+
     locals().update(_shadow_props_cls.get_name_dict())
 
     @property
@@ -252,12 +260,15 @@ class Connection(_ExtConnection):
         C.lcb_set_stat_callback(self._instance, self._bound_cb['stats'])
         C.lcb_set_observe_callback(self._instance, self._bound_cb['observe'])
         C.lcb_set_http_complete_callback(self._instance, self._bound_cb['htdone'])
+        C.lcb_set_durability_callback(self._instance, self._bound_cb['endure'])
 
     def __init__(self, **kwargs):
         kwargs['unlock_gil'] = False
         kwargs['lockmode'] = LOCKMODE_NONE
         setattr(self, self._shadow_props_cls.MEMBER_NAME, {})
+
         super(Connection, self).__init__(**kwargs)
+        _ExtConnection._dur_testhook.__set__(self, None)
 
         # Load the instance variables from the base
         self._shadow_props_cls.init_instance_vars(self)
@@ -270,7 +281,7 @@ class Connection(_ExtConnection):
             'get': ffi.callback(CALLBACK_DECLS['get'],
                                 self._get_callback),
             'remove': ffi.callback(CALLBACK_DECLS['delete'],
-                                   self._opres_callback),
+                                   self._remove_callback),
             'arith': ffi.callback(CALLBACK_DECLS['arith'],
                                   self._arith_callback),
             'error': ffi.callback(CALLBACK_DECLS['error'],
@@ -284,7 +295,9 @@ class Connection(_ExtConnection):
             'observe': ffi.callback(CALLBACK_DECLS['observe'],
                                     self._observe_callback),
             'htdone': ffi.callback(CALLBACK_DECLS['http'],
-                                   self._http_complete_callback)
+                                   self._http_complete_callback),
+            'endure': ffi.callback(CALLBACK_DECLS['endure'],
+                                   self._endure_callback)
         }
 
         self._cur = OperationInfo()
@@ -292,7 +305,6 @@ class Connection(_ExtConnection):
         self._init_instance()
         self.expose_extension_methods = kwargs.get('expose_extension_methods',
                                                    False)
-
     # Reimplement
     def _close(self):
         super(Connection, self)._close()
@@ -301,15 +313,6 @@ class Connection(_ExtConnection):
 
     @pycbc_cpy('pipeline')
     def pipeline(self): pass
-
-    @pycbc_cpy('durability')
-    def durability(self, *args, **kwargs): pass
-
-    @pycbc_cpy('endure')
-    def endure(self, *args, **kwargs): pass
-
-    @pycbc_cpy('endure_multi')
-    def endure_multi(self, *args, **kwargs): pass
 
     @pycbc_cpy('rget')
     def rget(self, *args, **kwargs): pass
@@ -361,19 +364,52 @@ class Connection(_ExtConnection):
 
         return res
 
+    def _chain_endure(self, opres, is_delete=False):
+        ctx = self._cur.ctx
+        if not ctx.persist_to and not ctx.replicate_to:
+            return
+
+        if self._dur_testhook:
+            self._dur_testhook(opres)
+
+        timeout = float(self._dur_timeout)
+        timeout /= 1000000
+
+        dctx = DurabilityCommandContext(self, [opres],
+                                        persist_to=ctx.persist_to,
+                                        replicate_to=ctx.replicate_to,
+                                        timeout=timeout,
+                                        check_removed=is_delete)
+
+        err = C.lcb_durability_poll(self._instance, ffi.NULL, *dctx.args())
+        if err != C.LCB_SUCCESS:
+            opres.rc = err
+            self._cur.update_single(opres, self)
+
     def _unlock_callback(self, instance, cookie, err, resp):
         res = OperationResult()
         res.rc = err
         self._add_response(resp, res)
 
-    def _opres_callback(self, instance, cookie, err, resp):
+    def _opres_common(self, err, resp):
         res = OperationResult()
         res.cas = resp.v.v0.cas
         res.rc = err
         self._add_response(resp, res)
+        return res
+
+    def _opres_callback(self, instance, cookie, err, resp):
+        self._opres_common(err, resp)
+
+    def _remove_callback(self, instance, cookie, err, resp):
+        res = self._opres_common(err, resp)
+        if not err:
+            self._chain_endure(res, is_delete=True)
 
     def _storage_callback(self, instance, cookie, op, err, resp):
-        self._opres_callback(instance, cookie, err, resp)
+        res = self._opres_common(err, resp)
+        if not err:
+            self._chain_endure(res)
 
     def _get_callback(self, instance, cookie, err, resp):
         res = ValueResult()
@@ -459,10 +495,6 @@ class Connection(_ExtConnection):
             err = resp.v.v0.err
 
         res = self._get_response(resp, err, OperationResult)
-        if not res:
-            return
-
-        # Not very exciting, is it.. eh?
 
     def _make_exc(self, rc, res=None):
         cls = CouchbaseError.rc_to_exctype(rc)
@@ -495,6 +527,10 @@ class Connection(_ExtConnection):
     # Generate the simple getters
     locals().update(gen_simple())
 
+    def endure_multi(self, keys=None, **kwargs):
+        ctx = DurabilityCommandContext(self, keys, **kwargs)
+        return self._invoke_common(C.lcb_durability_poll, ctx, True)
+
     ### HTTP API ###
     def _http_complete_callback(self, htreq, instance, cookie, err, resp):
         res = HttpResult()
@@ -505,7 +541,7 @@ class Connection(_ExtConnection):
         priv = self._cur.res._priv
 
         # Get the headers?
-        if priv['want_headers']:
+        if priv['want_headers'] and cres.headers != ffi.NULL:
             kvp = ffi.cast('char**', cres.headers)
             if kvp:
                 curix = 0
@@ -517,7 +553,7 @@ class Connection(_ExtConnection):
 
         fmt = priv['format']
 
-        if cres.bytes:
+        if cres.bytes and cres.nbytes:
             s_buf = ffi.buffer(cres.bytes, cres.nbytes)[:]
             try:
                 res.http_data = self._tc.decode_value(s_buf, fmt)

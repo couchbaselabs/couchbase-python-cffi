@@ -51,6 +51,22 @@ class CommandContext(object):
         except Exception as e:
             raise ArgumentError.pyexc(inner=e, obj=options.get('ttl', 0))
 
+    def handle_durability(self, parent, **kwargs):
+        self.persist_to = kwargs.get('persist_to',
+                                     parent._dur_persist_to)
+
+        self.replicate_to = kwargs.get('replicate_to',
+                                       parent._dur_replicate_to)
+
+        if not self.persist_to or self.replicate_to:
+            return
+
+        n_replicas = C.lcb_get_num_replicas(parent._instance)
+        if self.replicate_to > n_replicas or self.persist_to + (n_replicas+1):
+            ArgumentError.pyexc("Durability requirements will never "
+                                "be satisfied")
+
+
     @property
     def STRUCTNAME(self):
         raise NotImplementedError("Struct name must be specified in subclass")
@@ -180,6 +196,8 @@ class StoreCommandContext(CommandContext):
             'format': format
         })
 
+        self.handle_durability(parent, **kwargs)
+
         self._mode = mode
         self.build(kv)
 
@@ -219,8 +237,8 @@ class StoreCommandContext(CommandContext):
 
         req.operation = self._mode
 
-class GetCommandContext(CommandContext):
 
+class GetCommandContext(CommandContext):
     STRUCTNAME = 'lcb_get_cmd_t'
     _is_lock = False
 
@@ -244,12 +262,12 @@ class GetCommandContext(CommandContext):
             if not ttl:
                 raise ArgumentError.pyexc("Lock must have TTL")
 
+
 class LockCommandContext(GetCommandContext):
     _is_lock = True
 
 
 class RemoveCommandContext(CommandContext):
-
     STRUCTNAME = 'lcb_remove_cmd_t'
 
     def __init__(self, parent, kv, cas=0, **kwargs):
@@ -257,6 +275,8 @@ class RemoveCommandContext(CommandContext):
         self._koptions = {
             'cas': cas
         }
+
+        self.handle_durability(parent, **kwargs)
 
         self.build(kv)
 
@@ -372,6 +392,66 @@ class TouchCommandContext(CommandContext):
 
         self.extract_ttl(req, options)
 
+
+class DurabilityCommandContext(CommandContext):
+    STRUCTNAME = 'lcb_durability_cmd_t'
+
+    def _init_options(self, optreq, kwargs):
+        is_delete = kwargs.get('check_removed', False)
+
+        cap_max = False
+        if self.persist_to < 0:
+            persist_to = 100
+            cap_max = True
+
+        if self.replicate_to < 0:
+            replicate_to = 100
+            cap_max = True
+
+        optreq.persist_to = ffi.cast('unsigned char', self.persist_to)
+        optreq.replicate_to = ffi.cast('unsigned char', self.replicate_to)
+        optreq.check_delete = is_delete
+        optreq.cap_max = cap_max
+
+        timeout = kwargs.get('timeout', 5.0) * 1000000
+        interval = kwargs.get('interval', 0.010) * 1000000
+
+        optreq.timeout = int(timeout)
+        optreq.interval = int(interval)
+
+    def convert_to_koptions(self, input):
+        return Options({'cas':input})
+
+    def __init__(self, parent, kv, **kwargs):
+        kwargs.pop('quiet', None)
+
+        super(DurabilityCommandContext, self).__init__(parent, **kwargs)
+
+        kwargs.setdefault('persist_to', -1)
+        kwargs.setdefault('replicate_to', -1)
+        self.handle_durability(parent, **kwargs)
+
+        self.cas = kwargs.get('cas', 0)
+
+        self.options = ffi.new('lcb_durability_opts_t*')
+        self.options.version = 0
+        optreq = self.options.v.v0
+        try:
+            self._init_options(optreq, kwargs)
+        except Exception as e:
+            raise ArgumentError.pyexc(inner=e)
+
+        self.build(kv)
+
+    def process_single_command(self, req, koptions):
+        cas = koptions.get('cas', self.cas)
+        req.cas = cas
+
+    def args(self):
+        return tuple([self.options]+
+            list(super(DurabilityCommandContext, self).args()))
+
+
 class ObserveCommandContext(CommandContext):
     STRUCTNAME = 'lcb_observe_cmd_t'
 
@@ -381,6 +461,7 @@ class ObserveCommandContext(CommandContext):
 
     def process_single_command(self, req, koptions):
         pass
+
 
 class StatsCommandContext(CommandContext):
     STRUCTNAME = 'lcb_server_stats_cmd_t'
