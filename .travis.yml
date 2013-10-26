@@ -1,0 +1,31 @@
+language: python
+
+python:
+  - "pypy"
+
+before_install:
+  - sudo rm -rf /etc/apt/sources.list.d/*
+  - sudo add-apt-repository -y ppa:pypy/ppa
+  - wget -O- http://packages.couchbase.com/ubuntu/couchbase.key | sudo apt-key add -
+  - echo deb http://packages.couchbase.com/snapshot/ubuntu oneiric oneiric/main | sudo tee /etc/apt/sources.list.d/couchbase.list
+  - sudo apt-get update
+  - sudo apt-cache search libcouchbase
+
+install:
+  - sudo apt-get -y install libcouchbase-dev libcouchbase2-core libcouchbase2-libevent libevent-dev pypy pypy-dev
+  - wget https://bitbucket.org/pypa/setuptools/raw/bootstrap/ez_setup.py
+  - sudo /usr/lib/pypy/bin/pypy-c ez_setup.py
+  - sudo /usr/local/bin/easy_install pip
+  - sudo /usr/local/bin/pip install virtualenv
+  - /usr/local/bin/virtualenv VENV
+  - source VENV/bin/activate
+  - pip -q install testresources
+  - pip -q install nose
+  - ./.ci_install_cb.sh
+
+script:
+  - nosetests -v
+
+notifications:
+  email:
+    - sdk_dev@couchbase.com
