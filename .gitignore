@@ -4,3 +4,5 @@
 couchbase_ffi/_lcb.h
 build/
 dist/
+tests.ini
+couchbase # symlink
