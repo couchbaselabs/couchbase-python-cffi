@@ -19,7 +19,7 @@ typedef uint16_t lcb_uint16_t;
 typedef uint32_t lcb_uint32_t;
 typedef uint64_t lcb_cas_t;
 typedef uint64_t lcb_uint64_t;
-typedef unsigned long lcb_time_t;
+typedef long lcb_time_t;
 #include <libcouchbase/error.h>
 #include <libcouchbase/types.h>
 #include <libcouchbase/http.h>
