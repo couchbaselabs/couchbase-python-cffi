@@ -2,6 +2,9 @@
 Couchbase FFI
 =============
 
+.. image:: https://travis-ci.org/couchbaselabs/couchbase-python-cffi.png
+    :target: https://travis-ci.org/couchbaselabs/couchbase-python-cffi
+
 This project aims to supplant much of the Couchbase Python SDK functionality
 with variants written in Python. Interactions with libcouchbase will still be
 performed using `cffi`
