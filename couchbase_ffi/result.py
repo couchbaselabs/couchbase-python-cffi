@@ -1,9 +1,16 @@
 from couchbase_ffi._cinit import get_handle
+from couchbase._bootstrap import _result__repr__
+import couchbase._libcouchbase as _LCB
+
+"""
+This file contains the pure-python implementation of the results structures
+"""
 
 ffi, C = get_handle()
 
 class Result(object):
     __slots__ = ['key', 'rc']
+    _fldprops = _LCB.PYCBC_RESFLD_KEY
 
     @property
     def success(self):
@@ -13,13 +20,20 @@ class Result(object):
     def errstr(self):
         return ffi.string(C.lcb_strerror(ffi.NULL, self.rc))
 
+    __repr__ = _result__repr__
+
 class OperationResult(Result):
     __slots__ = ['cas']
+    _fldprops = _LCB.PYCBC_RESFLD_KEY|_LCB.PYCBC_RESFLD_CAS
+
     def __init__(self):
         self.cas = 0
 
 class ValueResult(OperationResult):
     __slots__ = ['value', 'flags']
+    _fldprops = (_LCB.PYCBC_RESFLD_KEY|
+                _LCB.PYCBC_RESFLD_CAS|
+                _LCB.PYCBC_RESFLD_VALUE)
     def __init__(self):
         super(ValueResult, self).__init__()
         self.value = None
@@ -42,6 +56,10 @@ class ObserveInfo(object):
 
 class HttpResult(Result):
     __slots__ = ['htcode', 'headers', 'done', 'http_data', 'fmt']
+    _fldprops = (_LCB.PYCBC_RESFLD_URL|
+                 _LCB.PYCBC_RESFLD_HTCODE|
+                 _LCB.PYCBC_RESFLD_VALUE)
+
     def __init__(self):
         super(HttpResult, self).__init__()
         self.htcode = 0
