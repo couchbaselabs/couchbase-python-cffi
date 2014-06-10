@@ -1,9 +1,7 @@
 from setuptools import setup
-import couchbase_ffi.connection
 
 setup(
     zip_safe=False,
-    ext_modules=[couchbase_ffi.connection.ffi.verifier.get_extension()],
     author="Mark Nunberg",
     author_email="mnunberg@haskalah.org",
     license="Apache License 2.0",
