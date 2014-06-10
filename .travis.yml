@@ -13,12 +13,7 @@ before_install:
 
 install:
   - sudo apt-get -y install libcouchbase-dev libcouchbase2-core libcouchbase2-libevent libevent-dev
-  #- wget https://bitbucket.org/pypa/setuptools/raw/bootstrap/ez_setup.py
-  #- sudo /usr/lib/pypy/bin/pypy-c ez_setup.py
-  #- sudo /usr/local/bin/easy_install pip
-  #- sudo /usr/local/bin/pip install virtualenv
-  #- /usr/local/bin/virtualenv VENV
-  #- source VENV/bin/activate
+  - pip install couchbase
 
 script:
   - python setup.py test

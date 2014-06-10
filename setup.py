@@ -1,6 +1,7 @@
 from setuptools import setup
-
+import couchbase_ffi._cinit
 setup_args = {
+    'ext_modules': [ couchbase_ffi._cinit.ffi.verifier.get_extension() ],
     'zip_safe': False,
     'author': "Mark Nunberg",
     'author_email': "mnunberg@haskalah.org",
