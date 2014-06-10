@@ -19,14 +19,11 @@ install:
   - sudo /usr/local/bin/pip install virtualenv
   - /usr/local/bin/virtualenv VENV
   - source VENV/bin/activate
-  - pip -q install testresources
-  - pip -q install nose
-  - pip -q install cffi
   - ./.ci_install_cb.sh
 
 script:
-  - nosetests -v
+  - python setup.py test
 
 notifications:
   email:
-    - sdk_dev@couchbase.com
+    - mnunberg@haskalah.org

@@ -10,6 +10,7 @@ setup(
     description="Couchbase Client API using CFFI",
     keywords=["PyPy", "nosql", "pycouchbase", "libcouchbase", "couchbase"],
     install_requires=['cffi', 'couchbase'],
+    tests_require['nose', 'testresources'],
 
     classifiers=[
         "Development Status :: 3 - Alpha",
