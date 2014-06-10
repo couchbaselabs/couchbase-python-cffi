@@ -9,6 +9,7 @@ setup(
     license="Apache License 2.0",
     description="Couchbase Client API using CFFI",
     keywords=["PyPy", "nosql", "pycouchbase", "libcouchbase", "couchbase"],
+    install_requires=['cffi', 'couchbase'],
 
     classifiers=[
         "Development Status :: 3 - Alpha",
