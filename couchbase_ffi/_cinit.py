@@ -1,4 +1,5 @@
 import os.path
+import os
 import subprocess
 from cffi import FFI
 
@@ -20,6 +21,7 @@ typedef uint32_t lcb_uint32_t;
 typedef uint64_t lcb_cas_t;
 typedef uint64_t lcb_uint64_t;
 typedef long lcb_time_t;
+typedef char va_list;
 #include <libcouchbase/error.h>
 #include <libcouchbase/types.h>
 #include <libcouchbase/http.h>
@@ -80,10 +82,11 @@ VERIFY_INPUT=b"""
 """
 
 CPP_OUTPUT = os.path.join(os.path.dirname(__file__), "_lcb.h")
-
-LCB_ROOT = '/sources/libcouchbase/inst/'
+LCB_ROOT = '/sources/lcb-master/inst/'
 
 def _exec_cpp():
+    # Temporarily disabled
+    return
     po = subprocess.Popen((
         'cpp', '-E', '-Wall', '-Wextra',
         '-I{0}/include'.format(LCB_ROOT),
@@ -103,6 +106,9 @@ def _exec_cpp():
         if l.startswith('#'):
             continue
         if not l:
+            continue
+        # va_list stuff
+        if '__gnuc' in l:
             continue
 
         outlines.append(l)
