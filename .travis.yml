@@ -21,6 +21,7 @@ install:
   - source VENV/bin/activate
   - pip -q install testresources
   - pip -q install nose
+  - pip -q install cffi
   - ./.ci_install_cb.sh
 
 script:
