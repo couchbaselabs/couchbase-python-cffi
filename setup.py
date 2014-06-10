@@ -1,16 +1,16 @@
 from setuptools import setup
 
-setup(
-    zip_safe=False,
-    author="Mark Nunberg",
-    author_email="mnunberg@haskalah.org",
-    license="Apache License 2.0",
-    description="Couchbase Client API using CFFI",
-    keywords=["PyPy", "nosql", "pycouchbase", "libcouchbase", "couchbase"],
-    install_requires=['cffi', 'couchbase'],
-    tests_require=['nose', 'testresources'],
+setup_args = {
+    'zip_safe': False,
+    'author': "Mark Nunberg",
+    'author_email': "mnunberg@haskalah.org",
+    'license': "Apache License 2.0",
+    'description': "Couchbase Client API using CFFI",
+    'keywords': ["PyPy", "nosql", "pycouchbase", "libcouchbase", "couchbase"],
+    'install_requires': ['cffi', 'couchbase'],
+    'tests_require': ['nose', 'testresources'],
 
-    classifiers=[
+    'classifiers': [
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: Apache Software License",
@@ -20,8 +20,12 @@ setup(
         "Programming Language :: Python :: Implementation :: PyPy",
         "Programming Language :: Python :: Implementation :: CPython"
     ],
-    packages=['couchbase_ffi'],
-    name='couchbase_ffi',
-    version='0.1.0',
-    uri='https://github.com/couchbaselabs/couchbase-python-cffi'
-)
+
+    'packages': ['couchbase_ffi'],
+    'package_data': {'couchbase_ffi':['_lcb.h']},
+    'name': 'couchbase_ffi',
+    'version': '0.1.0',
+    'url': 'https://github.com/couchbaselabs/couchbase-python-cffi'
+}
+
+setup(**setup_args)
