@@ -1,6 +1,7 @@
 import os.path
 import os
 import subprocess
+import re
 from cffi import FFI
 
 ffi = FFI()
@@ -22,9 +23,83 @@ VERIFY_INPUT=b"""
 
 CPP_OUTPUT = os.path.join(os.path.dirname(__file__), "_lcb.h")
 FAKE_INKPATH = os.path.join(os.path.dirname(__file__), 'fakeinc')
-LCB_ROOT = '/usr/local/'
+LCB_ROOT = '/sources/libcouchbase/inst/'
+
+RX_SHIFT = re.compile(r'(\(?\d+\)?)\s*((?:<<)|(?:>>)|(?:\|))\s*(\(?\d+\)?)')
+
+def shift_replace(m):
+    ss = '{0} {1} {2}'.format(m.group(1), m.group(2), m.group(3))
+    return str(eval(ss))
+
+
+def do_replace_vals(dh, decl):
+    keys = sorted(dh, cmp=lambda x, y: cmp(len(x), len(y)), reverse=True)
+    for k in keys:
+        decl = decl.replace(k, str(dh[k]))
+    return decl
+
+
+
+def handle_enumvals(defhash, linedecl):
+    # First, inspect to see if there is any funky magic going on here,
+    # this can include things like shifts and the like
+    linedecl = linedecl.strip()
+    has_comma = linedecl.endswith(',')
+    cur_decls = []
+
+    for decl in linedecl.split(','):
+        if not decl:
+            continue
+        if not '=' in decl:
+            cur_decls.append(decl)
+            continue
+
+        if '{' in decl:
+            preamble, decl = decl.split('{')
+            preamble += "{"
+        else:
+            preamble = ""
+
+        if '}' in decl:
+            decl, postamble = decl.split('}')
+            postamble = "}" + postamble
+        else:
+            postamble = ""
+
+        name, val = decl.split('=', 1)
+        name = name.strip()
+        val = val.strip()
+        val = val.replace(',', '')
+        val = do_replace_vals(defhash, val)
+
+        if not name.lower().startswith('lcb'):
+
+            continue
+
+        print "Handling", decl
+        while RX_SHIFT.search(val):
+            val = RX_SHIFT.sub(shift_replace, val)
+
+        try:
+            ival = int(val)
+        except ValueError:
+            ival = int(val, 16)
+
+        decl = '{0}={1}'.format(name, str(ival))
+        defhash[name] = ival
+        cur_decls.append(preamble + decl + postamble)
+
+
+    ret = ','.join(cur_decls)
+    if not '}' in ret:
+        ret += ','
+    return ret
+
+
+
 
 def _exec_cpp():
+
     if not os.environ.get('PYCBC_GENHEADER'):
         return
 
@@ -35,7 +110,6 @@ def _exec_cpp():
                '-xc', '-')
 
     rx_shifty = re.compile(r'([^=]+)=.*(?:(?:<<)|(?:>>)|(?:\|))[^,]+')
-
     po = subprocess.Popen(cpp_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
     stdout, _ = po.communicate(CPP_INPUT)
@@ -45,14 +119,17 @@ def _exec_cpp():
         lines = stdout.split("\n")
 
     outlines = []
+    defhash = {}
+
     for l in lines:
         if l.startswith('#'):
             continue
         if not l:
             continue
-        # va_list stuff
-        if '__gnuc' in l:
-            l = '//' + l
+
+        # Find definitions
+        if '=' in l and '==' not in l: # Enums!
+            l = handle_enumvals(defhash, l)
 
         l = l.replace("\r", "")
 
