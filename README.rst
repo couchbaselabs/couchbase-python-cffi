@@ -31,6 +31,24 @@ also assume you have libcouchbase, its headers. After that, simply use the
 ``couchbase_ffi.connection.Connection`` class as you would the
 ``couchbase.connection.Connection`` class.
 
+The first time you use the module, the `couchbase_ffi._cinit` module will
+attempt to generate the appropriate stubs for the library. Regeneration may
+also take place if you have upgraded your libcouchbase installation.
+
+Because regenerating the header might involve some hacks in dynamically
+patching the header file to make it acceptable to `pycparser`, it may fail
+at times.
+
+If the `_cinit` module fails to generate a header, you may attempt to use
+one from the ``cpp-generated`` directory. Copy the appropriate header file
+(named according to libcouchbase version and platform) as
+``couchbase_ffi/_lcb.h``.
+
+Ennvironment variables affecting how the headers are built:
+
+* ``PYCBC_CFFI_REGENERATE`` forces the header to be rebuilt
+* ``PYCBC_CFFI_PREFIX`` sets the installation prefix for libcouchbase
+
 TODO
 ----
 

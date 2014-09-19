@@ -2,14 +2,20 @@ import os.path
 import os
 import subprocess
 import re
+import warnings
+
 from cffi import FFI
+
+## Globals
+CPP_OUTPUT = os.path.join(os.path.dirname(__file__), "_lcb.h")
+FAKE_INKPATH = os.path.join(os.path.dirname(__file__), 'fakeinc')
+LCB_ROOT = os.environ.get('PYCBC_CFFI_PREFIX', '')
 
 ffi = FFI()
 C = None
 
 CPP_INPUT=b"""
 #define __attribute__(x)
-#include <libcouchbase/sysdefs.h>
 #include <libcouchbase/couchbase.h>
 """
 
@@ -20,10 +26,6 @@ VERIFY_INPUT=b"""
 #include <sys/time.h>
 #include <libcouchbase/couchbase.h>
 """
-
-CPP_OUTPUT = os.path.join(os.path.dirname(__file__), "_lcb.h")
-FAKE_INKPATH = os.path.join(os.path.dirname(__file__), 'fakeinc')
-LCB_ROOT = '/sources/libcouchbase/inst/'
 
 RX_SHIFT = re.compile(r'(\(?\d+\)?)\s*((?:<<)|(?:>>)|(?:\|))\s*(\(?\d+\)?)')
 
@@ -37,8 +39,6 @@ def do_replace_vals(dh, decl):
     for k in keys:
         decl = decl.replace(k, str(dh[k]))
     return decl
-
-
 
 def handle_enumvals(defhash, linedecl):
     # First, inspect to see if there is any funky magic going on here,
@@ -99,10 +99,6 @@ def handle_enumvals(defhash, linedecl):
 
 
 def _exec_cpp():
-
-    if not os.environ.get('PYCBC_GENHEADER'):
-        return
-
     cpp_cmd = ('gcc', '-E', '-Wall', '-Wextra',
                '-I{0}'.format(FAKE_INKPATH),
                '-I{0}/include'.format(LCB_ROOT),
@@ -139,13 +135,26 @@ def _exec_cpp():
         fp.write("\n".join(outlines))
         fp.flush()
 
+def ensure_header():
+    do_generate = False
+    if os.environ.get('PYCBC_CFFI_REGENERATE'):
+        do_generate = True
+    elif not os.path.exists(CPP_OUTPUT):
+        do_generate = True
+    else:
+        do_generate = False
+
+    if do_generate:
+        _exec_cpp()
+
 
 def get_handle():
     global C
     if C:
         return (ffi, C)
 
-    _exec_cpp()
+    ensure_header()
+
     ffi.cdef(open(CPP_OUTPUT, "r").read())
     C = ffi.verify(VERIFY_INPUT,
                    libraries=['couchbase'],

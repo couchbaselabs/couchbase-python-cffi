@@ -1,3 +1,7 @@
+struct lcb_st;
+typedef struct lcb_st *lcb_t;
+struct lcb_http_request_st;
+typedef struct lcb_http_request_st *lcb_http_request_t;
 typedef unsigned long size_t;
 typedef int __builtin_va_list;
 typedef int __gnuc_va_list;
@@ -144,10 +148,6 @@ typedef lcb_size_t lcb_SIZE;
 typedef lcb_ssize_t lcb_SSIZE;
 typedef lcb_time_t lcb_SECS;
 typedef lcb_cas_t lcb_CAS;
-struct lcb_st;
-typedef struct lcb_st *lcb_t;
-struct lcb_http_request_st;
-typedef struct lcb_http_request_st *lcb_http_request_t;
 typedef enum {
 LCB_ERRTYPE_INPUT=1,
 LCB_ERRTYPE_NETWORK=2,
@@ -581,7 +581,8 @@ typedef struct {
     lcb_SIZE nkey;
     lcb_time_t exptime;
     int lock;
-    const void *hashkey; lcb_SIZE nhashkey;
+    const void *hashkey;
+    lcb_SIZE nhashkey;
 } lcb_GETCMDv0;
 typedef struct lcb_get_cmd_st {
     int version;
@@ -618,7 +619,9 @@ lcb_error_t lcb_get(lcb_t instance,
                     const void *command_cookie,
                     lcb_SIZE num,
                     const lcb_get_cmd_t *const *commands);
-typedef struct { const void *key; lcb_SIZE nkey; const void *hashkey; lcb_SIZE nhashkey; } lcb_GETREPLICACMDv0;
+typedef struct {
+    const void *key; lcb_SIZE nkey; const void *hashkey; lcb_SIZE nhashkey;
+} lcb_GETREPLICACMDv0;
 typedef enum {
 LCB_REPLICA_FIRST=0,
 LCB_REPLICA_ALL=1,
@@ -627,7 +630,8 @@ LCB_REPLICA_SELECT=2,
 typedef struct {
     const void *key;
     lcb_SIZE nkey;
-    const void *hashkey; lcb_SIZE nhashkey;
+    const void *hashkey;
+    lcb_SIZE nhashkey;
     lcb_replica_t strategy;
     int index;
 } lcb_GETREPLICACMDv1;
@@ -646,7 +650,8 @@ typedef struct {
     const void *key;
     lcb_SIZE nkey;
     lcb_cas_t cas;
-    const void *hashkey; lcb_SIZE nhashkey;
+    const void *hashkey;
+    lcb_SIZE nhashkey;
 } lcb_UNLOCKCMDv0;
 typedef struct lcb_unlock_cmd_st {
     int version;
@@ -690,7 +695,8 @@ typedef struct {
     lcb_U8 datatype;
     lcb_time_t exptime;
     lcb_storage_t operation;
-    const void *hashkey; lcb_SIZE nhashkey;
+    const void *hashkey;
+    lcb_SIZE nhashkey;
 } lcb_STORECMDv0;
 typedef struct lcb_store_cmd_st {
     int version;
@@ -726,7 +732,8 @@ typedef struct {
     int create;
     lcb_S64 delta;
     lcb_U64 initial;
-    const void *hashkey; lcb_SIZE nhashkey;
+    const void *hashkey;
+    lcb_SIZE nhashkey;
 } lcb_ARITHCMDv0;
 typedef struct lcb_arithmetic_cmd_st {
     int version;
@@ -808,7 +815,8 @@ typedef struct {
     const void *key;
     lcb_SIZE nkey;
     lcb_cas_t cas;
-    const void *hashkey; lcb_SIZE nhashkey;
+    const void *hashkey;
+    lcb_SIZE nhashkey;
 } lcb_REMOVECMDv0;
 typedef struct lcb_remove_cmd_st {
     int version;
@@ -860,7 +868,8 @@ lcb_error_t lcb_touch(lcb_t instance,
 typedef struct {
     const void *key;
     size_t nkey;
-    const void *hashkey; lcb_SIZE nhashkey;
+    const void *hashkey;
+    size_t nhashkey;
     lcb_cas_t cas;
 } lcb_DURABILITYCMDv0;
 typedef struct lcb_durability_cmd_st {
@@ -1257,7 +1266,7 @@ typedef struct lcb_VALBUF {
     } u_buf;
 } lcb_VALBUF;
 typedef struct lcb_CMDBASE {
-    lcb_U32 cmdflags; lcb_U32 exptime; lcb_U64 cas; lcb_KEYBUF key; lcb_KEYBUF _hashkey;
+    lcb_U32 cmdflags; lcb_U32 exptime; lcb_U64 cas; lcb_KEYBUF key; lcb_KEYBUF hashkey;
 } lcb_CMDBASE;
 typedef struct {
     void *cookie; const void *key; lcb_SIZE nkey; lcb_cas_t cas; lcb_error_t rc; lcb_U16 version; lcb_U16 rflags;
@@ -1297,7 +1306,7 @@ void lcb_sched_enter(lcb_t instance);
 void lcb_sched_leave(lcb_t instance);
 void lcb_sched_fail(lcb_t instance);
 typedef struct {
-    lcb_U32 cmdflags; lcb_U32 exptime; lcb_U64 cas; lcb_KEYBUF key; lcb_KEYBUF _hashkey;
+    lcb_U32 cmdflags; lcb_U32 exptime; lcb_U64 cas; lcb_KEYBUF key; lcb_KEYBUF hashkey;
     int lock;
 } lcb_CMDGET;
 typedef struct {
@@ -1315,7 +1324,7 @@ typedef lcb_RESPBASE lcb_RESPUNLOCK;
 lcb_error_t
 lcb_unlock3(lcb_t instance, const void *cookie, const lcb_CMDUNLOCK *cmd);
 typedef struct {
-    lcb_U32 cmdflags; lcb_U32 exptime; lcb_U64 cas; lcb_KEYBUF key; lcb_KEYBUF _hashkey;
+    lcb_U32 cmdflags; lcb_U32 exptime; lcb_U64 cas; lcb_KEYBUF key; lcb_KEYBUF hashkey;
     lcb_int64_t delta;
     lcb_U64 initial;
     int create;
@@ -1327,14 +1336,14 @@ typedef struct {
 lcb_error_t
 lcb_counter3(lcb_t instance, const void *cookie, const lcb_CMDCOUNTER *cmd);
 typedef struct {
-    lcb_U32 cmdflags; lcb_U32 exptime; lcb_U64 cas; lcb_KEYBUF key; lcb_KEYBUF _hashkey;
+    lcb_U32 cmdflags; lcb_U32 exptime; lcb_U64 cas; lcb_KEYBUF key; lcb_KEYBUF hashkey;
     lcb_replica_t strategy;
     int index;
 } lcb_CMDGETREPLICA;
 lcb_error_t
 lcb_rget3(lcb_t instance, const void *cookie, const lcb_CMDGETREPLICA *cmd);
 typedef struct {
-    lcb_U32 cmdflags; lcb_U32 exptime; lcb_U64 cas; lcb_KEYBUF key; lcb_KEYBUF _hashkey;
+    lcb_U32 cmdflags; lcb_U32 exptime; lcb_U64 cas; lcb_KEYBUF key; lcb_KEYBUF hashkey;
     lcb_VALBUF value;
     lcb_U32 flags;
     lcb_datatype_t datatype;
@@ -1399,7 +1408,7 @@ typedef struct {
 lcb_error_t
 lcb_server_versions3(lcb_t instance, const void *cookie, const lcb_CMDBASE * cmd);
 typedef struct {
-    lcb_U32 cmdflags; lcb_U32 exptime; lcb_U64 cas; lcb_KEYBUF key; lcb_KEYBUF _hashkey;
+    lcb_U32 cmdflags; lcb_U32 exptime; lcb_U64 cas; lcb_KEYBUF key; lcb_KEYBUF hashkey;
     const char *server;
     lcb_verbosity_level_t level;
 } lcb_CMDVERBOSITY;
@@ -1411,7 +1420,7 @@ typedef lcb_RESPSERVERBASE lcb_RESPFLUSH;
 lcb_error_t
 lcb_flush3(lcb_t instance, const void *cookie, const lcb_CMDFLUSH *cmd);
 typedef struct {
-    lcb_U32 cmdflags; lcb_U32 exptime; lcb_U64 cas; lcb_KEYBUF key; lcb_KEYBUF _hashkey;
+    lcb_U32 cmdflags; lcb_U32 exptime; lcb_U64 cas; lcb_KEYBUF key; lcb_KEYBUF hashkey;
     lcb_http_type_t type;
     lcb_http_method_t method;
     const char *body;
