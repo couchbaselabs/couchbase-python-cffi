@@ -7,7 +7,7 @@ before_install:
   - sudo rm -rf /etc/apt/sources.list.d/*
   - sudo add-apt-repository -y ppa:pypy/ppa
   - wget -O- http://packages.couchbase.com/ubuntu/couchbase.key | sudo apt-key add -
-  - echo deb http://packages.couchbase.com/ubuntu oneiric oneiric/main | sudo tee /etc/apt/sources.list.d/couchbase.list
+  - echo deb http://packages.couchbase.com/ubuntu trusty trusty/main | sudo tee /etc/apt/sources.list.d/couchbase.list
   - sudo apt-get update
   - sudo apt-cache search libcouchbase
 
