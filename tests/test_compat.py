@@ -51,8 +51,20 @@ for cls in SKIP_NOT_SUPPORTED:
     cls.setUp = _setup
     cls.tearDown = _teardown
 
-# Defaults may be different because of GIL handling
-ConnectionMiscTest_FFI.test_connection_defaults = lambda x: None
+def do_skip_tmeth(cls, name):
+    def meth(*args):
+        raise SkipTest("Not supported in FFI mode")
+
+    setattr(cls, name, meth)
+
+
+for n in (
+    'test_connection_defaults', # Different defaults
+    'test_cntl', # Crashes, need wrapper
+    'test_newer_ctls', # Crashes, need wrapper
+    'test_vbmap', # Crashes, need wrapper
+    ):
+    do_skip_tmeth(ConnectionMiscTest_FFI, n)
 
 for k, t in inspect.getmembers(ViewIteratorTest_FFI):
     if 'streaming' in k:
