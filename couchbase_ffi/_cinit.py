@@ -1,12 +1,11 @@
-import os.path
+from __future__ import print_function
 import os
 import subprocess
 import re
-import warnings
 
 from cffi import FFI
 
-## Globals
+# Globals
 CPP_OUTPUT = os.path.join(os.path.dirname(__file__), "_lcb.h")
 FAKE_INKPATH = os.path.join(os.path.dirname(__file__), 'fakeinc')
 LCB_ROOT = os.environ.get('PYCBC_CFFI_PREFIX', '')
@@ -14,20 +13,40 @@ LCB_ROOT = os.environ.get('PYCBC_CFFI_PREFIX', '')
 ffi = FFI()
 C = None
 
-CPP_INPUT=b"""
+CPP_INPUT = """
 #define __attribute__(x)
 #include <libcouchbase/couchbase.h>
+#include <libcouchbase/api3.h>
+#include <libcouchbase/views.h>
+
+void _Cb_set_key(void*,const void*, size_t);
+void _Cb_set_val(void*,const void*, size_t);
+void _Cb_do_callback(lcb_socket_t s, short events, lcb_ioE_callback cb, void *arg);
+void memset(void*,int,int);
 """
 
-VERIFY_INPUT=b"""
+VERIFY_INPUT = """
 #include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/time.h>
 #include <libcouchbase/couchbase.h>
+#include <libcouchbase/api3.h>
+#include <libcouchbase/views.h>
+
+void _Cb_set_key(void *cmd, const void *key, size_t nkey) {
+    LCB_CMD_SET_KEY((lcb_CMDBASE*)cmd, key, nkey);
+}
+void _Cb_set_val(void *cmd, const void *val, size_t nval) {
+    LCB_CMD_SET_VALUE((lcb_CMDSTORE*)cmd, val, nval);
+}
+void _Cb_do_callback(lcb_socket_t s, short events, lcb_ioE_callback cb, void *arg) {
+    cb(s, events, arg);
+}
 """
 
 RX_SHIFT = re.compile(r'(\(?\d+\)?)\s*((?:<<)|(?:>>)|(?:\|))\s*(\(?\d+\)?)')
+
 
 def shift_replace(m):
     ss = '{0} {1} {2}'.format(m.group(1), m.group(2), m.group(3))
@@ -40,11 +59,11 @@ def do_replace_vals(dh, decl):
         decl = decl.replace(k, str(dh[k]))
     return decl
 
+
 def handle_enumvals(defhash, linedecl):
     # First, inspect to see if there is any funky magic going on here,
     # this can include things like shifts and the like
     linedecl = linedecl.strip()
-    has_comma = linedecl.endswith(',')
     cur_decls = []
 
     for decl in linedecl.split(','):
@@ -66,6 +85,7 @@ def handle_enumvals(defhash, linedecl):
         else:
             postamble = ""
 
+        print(decl)
         name, val = decl.split('=', 1)
         name = name.strip()
         val = val.strip()
@@ -76,7 +96,7 @@ def handle_enumvals(defhash, linedecl):
 
             continue
 
-        print "Handling", decl
+        print("Handling", decl)
         while RX_SHIFT.search(val):
             val = RX_SHIFT.sub(shift_replace, val)
 
@@ -89,31 +109,36 @@ def handle_enumvals(defhash, linedecl):
         defhash[name] = ival
         cur_decls.append(preamble + decl + postamble)
 
-
     ret = ','.join(cur_decls)
-    if not '}' in ret:
+    if '}' not in ret:
         ret += ','
     return ret
 
 
+CPP_COMMON = ['gcc', '-E', '-Wall', '-Wextra',
+              '-I{0}'.format(FAKE_INKPATH), '-I{0}/include'.format(LCB_ROOT),
+              '-std=c89', '-xc']
+
+
+def get_preprocessed(csrc, extra_options=None):
+    options = CPP_COMMON[::]
+    if extra_options:
+        options += extra_options
+    options += ['-']
+
+    po = subprocess.Popen(options, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    stdout, _ = po.communicate(csrc)
+    if po.returncode != 0:
+        raise ValueError("Bad CPP Input!")
+
+    try:
+        return str(stdout, 'utf8').split("\n")
+    except TypeError:
+        return stdout.split("\n")
 
 
 def _exec_cpp():
-    cpp_cmd = ('gcc', '-E', '-Wall', '-Wextra',
-               '-I{0}'.format(FAKE_INKPATH),
-               '-I{0}/include'.format(LCB_ROOT),
-               '-std=c89',
-               '-xc', '-')
-
-    rx_shifty = re.compile(r'([^=]+)=.*(?:(?:<<)|(?:>>)|(?:\|))[^,]+')
-    po = subprocess.Popen(cpp_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-
-    stdout, _ = po.communicate(CPP_INPUT)
-    try:
-        lines = str(stdout, "utf8").split("\n")
-    except TypeError:
-        lines = stdout.split("\n")
-
+    lines = get_preprocessed(CPP_INPUT)
     outlines = []
     defhash = {}
 
@@ -124,7 +149,8 @@ def _exec_cpp():
             continue
 
         # Find definitions
-        if '=' in l and '==' not in l: # Enums!
+        if '=' in l and '==' not in l:
+            # Handle enums
             l = handle_enumvals(defhash, l)
 
         l = l.replace("\r", "")
@@ -135,8 +161,8 @@ def _exec_cpp():
         fp.write("\n".join(outlines))
         fp.flush()
 
+
 def ensure_header():
-    do_generate = False
     if os.environ.get('PYCBC_CFFI_REGENERATE'):
         do_generate = True
     elif not os.path.exists(CPP_OUTPUT):
@@ -151,41 +177,23 @@ def ensure_header():
 def get_handle():
     global C
     if C:
-        return (ffi, C)
+        return ffi, C
 
     ensure_header()
 
     ffi.cdef(open(CPP_OUTPUT, "r").read())
+
+    ffi.cdef('const int LCB_CMDOBSERVE_F_MASTER_ONLY;')
+    ffi.cdef('const int LCB_RESP_F_FINAL;')
+    ffi.cdef('const int LCB_CNTL_SET;')
+    ffi.cdef('const int LCB_CNTL_GET;')
+    ffi.cdef('const int LCB_CNTL_BUCKETNAME;')
+    ffi.cdef('const int LCB_CMDVIEWQUERY_F_INCLUDE_DOCS;')
+
     C = ffi.verify(VERIFY_INPUT,
                    libraries=['couchbase'],
                    library_dirs=[os.path.join(LCB_ROOT, 'lib')],
                    include_dirs=[os.path.join(LCB_ROOT, 'include')],
                    runtime_library_dirs=[os.path.join(LCB_ROOT, 'lib')])
 
-    return (ffi, C)
-
-
-CALLBACK_DECLS = {
-    'store':
-        'void(lcb_t,const void*,lcb_storage_t,lcb_error_t,const lcb_store_resp_t*)',
-    'get':
-        'void(lcb_t,const void*,lcb_error_t,const lcb_get_resp_t*)',
-    'delete':
-        'void(lcb_t,const void*,lcb_error_t,const lcb_remove_resp_t*)',
-    'arith':
-        'void(lcb_t,const void*,lcb_error_t,const lcb_arithmetic_resp_t*)',
-    'error':
-        'void(lcb_t,lcb_error_t,const char*)',
-    'touch':
-        'void(lcb_t,const void*,lcb_error_t,const lcb_touch_resp_t*)',
-    'unlock':
-        'void(lcb_t,const void*,lcb_error_t,const lcb_unlock_resp_t*)',
-    'observe':
-        'void(lcb_t,const void*,lcb_error_t,const lcb_observe_resp_t*)',
-    'stats':
-        'void(lcb_t,const void*,lcb_error_t,const lcb_server_stat_resp_t*)',
-    'http':
-        'void(lcb_http_request_t,lcb_t,const void*,lcb_error_t,const lcb_http_resp_t*)',
-    'endure':
-        'void(lcb_t,const void*,lcb_error_t,const lcb_durability_resp_t*)'
-}
+    return ffi, C

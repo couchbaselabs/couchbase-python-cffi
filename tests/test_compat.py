@@ -1,20 +1,16 @@
 import inspect
-
+import couchbase_ffi
+from couchbase_ffi.result import MultiResult
 from couchbase.tests.base import ApiImplementationMixin, SkipTest
 from couchbase.tests.importer import get_configured_classes
+from couchbase.bucket import Bucket
 
-from couchbase_ffi.connection import Connection
-from couchbase_ffi.result import (
-    MultiResult, OperationResult, Result, ValueResult, ObserveInfo)
 
 class ConfigMixin(ApiImplementationMixin):
-    factory = Connection
+    factory = Bucket
     should_check_refcount = False
     cls_MultiResult = MultiResult
-    cls_ValueResult = ValueResult
-    cls_OperationResult = OperationResult
-    cls_Result = Result
-    cls_ObserveInfo = ObserveInfo
+
 
 configured_classes = get_configured_classes(ConfigMixin, implstr='_FFI')
 globals().update(configured_classes)
@@ -23,11 +19,9 @@ globals().update(configured_classes)
 # These are not yet implemented via cffi
 
 SKIP_NYI = (
-    ConnectionPipelineTest_FFI,
-    ConnectionReplicaGetTest_FFI,
-    ConnectionItemTest_FFI,
-    ConverertSetTest_FFI,
-    LockmodeTest_FFI
+    # ConnectionPipelineTest_FFI,
+    # ConnectionItemTest_FFI,
+    # LockmodeTest_FFI
 )
 
 for cls in SKIP_NYI:
@@ -39,10 +33,7 @@ for cls in SKIP_NYI:
     cls.tearDown = _teardown
 
 
-SKIP_NOT_SUPPORTED = (
-    ConnectionIopsTest_FFI,
-)
-
+SKIP_NOT_SUPPORTED = ()
 for cls in SKIP_NOT_SUPPORTED:
     def _setup(*args):
         raise SkipTest("Not supported in FFI mode")
@@ -50,6 +41,7 @@ for cls in SKIP_NOT_SUPPORTED:
         pass
     cls.setUp = _setup
     cls.tearDown = _teardown
+
 
 def do_skip_tmeth(cls, name):
     def meth(*args):
@@ -64,10 +56,11 @@ for n in (
     'test_newer_ctls', # Crashes, need wrapper
     'test_vbmap', # Crashes, need wrapper
     ):
-    do_skip_tmeth(ConnectionMiscTest_FFI, n)
+    do_skip_tmeth(MiscTest_FFI, n)
 
-for k, t in inspect.getmembers(ViewIteratorTest_FFI):
-    if 'streaming' in k:
-        def fn(*args):
-            raise SkipTest("Streaming view not supported in FFI")
-        setattr(ViewIteratorTest_FFI, k, fn)
+for n in ('test_iterclass',):
+    do_skip_tmeth(ItertypeTest_FFI, n)
+
+for n in ('test_subclass_descriptors',):
+    do_skip_tmeth(ItemTest_FFI, n)
+
