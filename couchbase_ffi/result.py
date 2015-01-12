@@ -6,6 +6,7 @@ from couchbase_ffi.constants import (
 
 from couchbase_ffi._cinit import get_handle
 from couchbase_ffi._rtconfig import PyCBC, pycbc_exc_lcb
+from couchbase_ffi._strutil import from_cstring
 
 """
 This file contains the pure-python implementation of the results structures
@@ -24,7 +25,7 @@ class Result(object):
 
     @property
     def errstr(self):
-        return ffi.string(C.lcb_strerror(ffi.NULL, self.rc))
+        return from_cstring(C.lcb_strerror(ffi.NULL, self.rc))
 
     def __repr__(self):
         return PyCBC.result_reprfunc(self)
