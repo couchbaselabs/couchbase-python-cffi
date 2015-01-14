@@ -143,7 +143,7 @@ class Bucket(object):
         '__default_format', '__quiet', '__connected', '__dtor_handle',
 
         # User-facing
-        '__transcoder', 'data_passthrough',
+        '__transcoder', '__is_default_tc', 'data_passthrough', 'unlock_gil',
 
         # Internal (used by couchbase and couchbase_ffi
         '_dur_persist_to', '_dur_replicate_to', '_dur_timeout', '_dur_testhook',
@@ -241,9 +241,10 @@ class Bucket(object):
 
         # Set our properties
         self.data_passthrough = False
-        self.transcoder = transcoder or _make_transcoder()
+        self.transcoder = transcoder
         self.default_format = default_format
         self.quiet = quiet
+        self.unlock_gil = unlock_gil
 
         self._dur_persist_to = 0
         self._dur_replicate_to = 0
@@ -296,12 +297,16 @@ class Bucket(object):
 
     @property
     def transcoder(self):
-        return self.__transcoder
+        return None if self.__is_default_tc else self.__transcoder
+
     @transcoder.setter
     def transcoder(self, arg):
         if arg in (None, False):
-            arg = _make_transcoder()
-        self.__transcoder = arg
+            self.__transcoder = _make_transcoder()
+            self.__is_default_tc = True
+        else:
+            self.__transcoder = arg
+            self.__is_default_tc = True
 
     @property
     def _is_async(self):
@@ -524,12 +529,28 @@ class Bucket(object):
         if rc:
             raise pycbc_exc_lcb(rc)
 
-    def _cntl(self, op, value_type=None, value=None):
+    OLD_CNTL_MAP = {
+        0x00: 'uint32_t',
+        0x01: 'uint32_t'
+    }
+
+    def _cntl(self, op, value=None, value_type=None):
+        if value_type is None and op in self.OLD_CNTL_MAP:
+            value_type = self.OLD_CNTL_MAP[op]
         try:
             handler = CNTL_VTYPE_MAP[value_type]
         except KeyError:
             raise pycbc_exc_args('Invalid value type', obj=value_type)
         return handler.execute(self._lcbh, op, value)
+
+    def _vbmap(self, key):
+        bm = BufManager(ffi)
+        info_obj = ffi.new('lcb_cntl_vbinfo_t*')
+        info_obj.v.v0.key, info_obj.v.v0.nkey = bm.new_cbuf(key)
+        rc = C.lcb_cntl(self._lcbh, C.LCB_CNTL_GET, C.LCB_CNTL_VBMAP, info_obj)
+        if rc:
+            raise pycbc_exc_lcb(rc)
+        return info_obj.v.v0.vbucket, info_obj.v.v0.server_index
 
     @property
     def _closed(self):

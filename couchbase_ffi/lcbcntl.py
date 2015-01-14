@@ -1,5 +1,5 @@
 from couchbase_ffi._cinit import get_handle
-from couchbase_ffi._rtconfig import pycbc_exc_lcb
+from couchbase_ffi._rtconfig import pycbc_exc_lcb, pycbc_exc_args
 from couchbase_ffi._strutil import from_cstring
 
 ffi, C = get_handle()
@@ -26,7 +26,10 @@ class CntlHandler(object):
         c_data = self.allocate(mode)
 
         if mode == C.LCB_CNTL_SET:
-            self.convert_input(value, c_data)
+            try:
+                self.convert_input(value, c_data)
+            except:
+                raise pycbc_exc_args(obj=value)
             rc = C.lcb_cntl(lcbh, mode, op, c_data)
         else:
             rc = C.lcb_cntl(lcbh, mode, op, c_data)

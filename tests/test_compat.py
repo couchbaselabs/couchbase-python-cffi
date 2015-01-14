@@ -18,12 +18,7 @@ globals().update(configured_classes)
 
 # These are not yet implemented via cffi
 
-SKIP_NYI = (
-    # ConnectionPipelineTest_FFI,
-    # ConnectionItemTest_FFI,
-    # LockmodeTest_FFI
-)
-
+SKIP_NYI = []
 for cls in SKIP_NYI:
     def _setup(*args):
         raise SkipTest("Not Implemented via FFI")
@@ -48,15 +43,6 @@ def do_skip_tmeth(cls, name):
         raise SkipTest("Not supported in FFI mode")
 
     setattr(cls, name, meth)
-
-
-for n in (
-    'test_connection_defaults', # Different defaults
-    'test_cntl', # Crashes, need wrapper
-    'test_newer_ctls', # Crashes, need wrapper
-    'test_vbmap', # Crashes, need wrapper
-    ):
-    do_skip_tmeth(MiscTest_FFI, n)
 
 for n in ('test_iterclass',):
     do_skip_tmeth(ItertypeTest_FFI, n)
