@@ -70,20 +70,27 @@ Performance
 -----------
 
 Here are some examples using the ``bench.py`` script in the main Couchbase
-Python distribution.
+Python distribution. These were all executed against a locally running
+memcached like so
+
+Example::
+
+     ./examples/txbench.py -U memcached://localhost -t 1 -C 1
+     #....
+
+
+Here are the results:
 
 ==============  =======  =======
 --------------  -------  -------
 Implementation  Threads  Ops/Sec
 ==============  =======  =======
-FFI (PyPy)      0        8200
-FFI (CPython)   0        4500
-Ext (PyPy)      0        4800
+FFI (PyPy)      0        9440
+FFI (CPython)   0        4400
 Ext (CPython)   0        11200
-FFI (PyPy)      4        15300
-FFI (CPython)   4        4600
-Ext (PyPy)      4        4400
-Ext (CPython)   4        27000
+FFI (PyPy)      4        9169
+FFI (CPython)   4        4190
+Ext (CPython)   4        21685
 ==============  =======  =======
 
 
@@ -93,15 +100,15 @@ For twisted:
 --------------  -------  -------
 Implementation  C/T      Ops/Sec
 ==============  =======  =======
-FFI (PyPy)      1/1      5850
-FFI (CPython)   1/1      2600
-Ext (CPython)   1/1      5950
+FFI (PyPy)      1/1      7583
+FFI (CPython)   1/1      3502
+Ext (CPython)   1/1      9895
 FFI (PyPy)      4/4      26000
 FFI (CPython)   4/4      7500
 Ext (CPython)   4/4      33600
-FFI (PyPy)      10/10    32557
-FFI (CPython)   10/10    9290
-Ext (CPython)   10/10    42160
+FFI (PyPy)      10/10    36277
+FFI (CPython)   10/10    9273
+Ext (CPython)   10/10    57072
 ==============  =======  =======
 
 
