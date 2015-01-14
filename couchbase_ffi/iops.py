@@ -10,15 +10,21 @@ ffi, C = get_handle()
 
 
 class Event(object):
-    __slots__ = ['evtype', 'state', '_c_callback', '_c_arg', '_cdata']
+    # __slots__ = ['evtype', 'state', '_c_callback', '_c_arg', '_cdata']
 
     def __init__(self):
         self._cdata = ffi.new_handle(self)
         self.state = 0
+        self._c_callback = None
+        self._c_arg = None
 
 
 class IOEvent(Event):
-    __slots__ = ['fd', 'flags']
+    # __slots__ = ['fd', 'flags']
+    def __init__(self):
+        super(IOEvent, self).__init__()
+        self.flags = 0
+        self.fd = -1
 
     def ready_r(self):
         C._Cb_do_callback(self.fd, LCB_READ_EVENT, self._c_callback, self._c_arg)
@@ -34,7 +40,7 @@ class IOEvent(Event):
 
 
 class TimerEvent(Event):
-    def ready(self, *args):
+    def ready(self, *_):
         C._Cb_do_callback(0, 0, self._c_callback, self._c_arg)
 
 
@@ -42,7 +48,11 @@ def to_pyio(fn):
     def wrap(*args):
         iobj = args[0]
         obj = ffi.from_handle(iobj.v.v0.cookie)
-        return fn(obj, *args)
+        try:
+            return fn(obj, *args)
+        except:
+            import traceback
+            traceback.print_exc()
     return wrap
 
 @ffi.callback('void*(lcb_io_opt_t)')
@@ -102,6 +112,13 @@ def stop_loop(self, io):
     self._do_stop()
 
 
+ALL_REFS = set()
+@ffi.callback('void(lcb_io_opt_t)')
+@to_pyio
+def destructor(self, io):
+    print 'Removing...'
+    ALL_REFS.remove(self)
+
 @ffi.callback('''void(
     int,
     lcb_loop_procs*,
@@ -140,22 +157,23 @@ class IOPSWrapper(object):
         # Get all the I/O methods from the inner object
         self._do_update_event = procs_obj.update_event
         self._do_update_timer = procs_obj.update_timer
-        self._do_create_timer = getattr(procs_obj, 'timer_event_factory',
-                                        self._default_timer_factory)
-        self._do_create_event = getattr(procs_obj, 'io_event_factory',
-                                        self._default_event_factory())
-        self._do_start = getattr(procs_obj, 'start_watching',
-                                 self._default_start())
-        self._do_stop = getattr(procs_obj, 'stop_watching',
-                                self._default_stop())
+        self._do_create_timer = getattr(
+            procs_obj, 'timer_event_factory', self._default_timer_factory)
+        self._do_create_event = getattr(
+            procs_obj, 'io_event_factory', self._default_event_factory())
+        self._do_start = getattr(
+            procs_obj, 'start_watching', self._default_start())
+        self._do_stop = getattr(
+            procs_obj, 'stop_watching', self._default_stop())
 
         self._cdata = ffi.new_handle(self)
-
         self._c_iops = ffi.new('lcb_io_opt_t')
         self._c_iops.version = 2
         self._c_iops.v.v2.cookie = self._cdata
         self._c_iops.v.v2.get_procs = getprocs
+        self._c_iops.destructor = destructor
         self._handles = {}
+        ALL_REFS.add(self)
 
     def get_lcb_iops(self):
         return self._c_iops
@@ -196,3 +214,6 @@ class IOPSWrapper(object):
         self.mod_event_common(ev, PYCBC_EVACTION_CLEANUP, None, 0)
         del ev._cdata
         del self._handles[id(ev)]
+
+    def __hash__(self):
+        return hash(id(self))

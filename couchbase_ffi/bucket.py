@@ -1,9 +1,12 @@
 import sys
 import warnings
+import weakref
 from threading import Lock
 
 from couchbase_ffi._cinit import get_handle
-from couchbase_ffi.result import MultiResult, ObserveInfo, ValueResult
+from couchbase_ffi.result import (
+    MultiResult, ObserveInfo, ValueResult, AsyncResult
+)
 from couchbase_ffi.view import ViewResult
 from couchbase_ffi.http import HttpRequest
 from couchbase_ffi.iops import IOPSWrapper
@@ -16,7 +19,7 @@ import couchbase_ffi.executors as executors
 
 from couchbase_ffi.constants import (
     FMT_JSON, PYCBC_CONN_F_CLOSED, PYCBC_CONN_F_WARNEXPLICIT,
-    LOCKMODE_EXC, LOCKMODE_NONE)
+    LOCKMODE_EXC, LOCKMODE_NONE, PYCBC_CONN_F_ASYNC)
 
 ffi, C = get_handle()
 
@@ -25,22 +28,9 @@ CALLBACK_DECL = 'void(lcb_t,int,const lcb_RESPBASE*)'
 
 
 def _make_transcoder():
-    from couchbase.transcoder import TranscoderPP
-
-    class _Transcoder(TranscoderPP):
-        def _do_json_encode(self, value):
-            return PyCBC.json_encode(value)
-
-        def _do_json_decode(self, value):
-            return PyCBC.json_decode(value)
-
-        def _do_pickle_encode(self, value):
-            return PyCBC.pickle_encode(value)
-
-        def _do_pickle_decode(self, value):
-            return PyCBC.pickle_decode(value)
-
-    return _Transcoder()
+    # noinspection PyUnresolvedReferences
+    from couchbase_ffi._libcouchbase import Transcoder
+    return Transcoder()
 
 
 def _gen_valmeth(name):
@@ -59,21 +49,105 @@ def _gen_keymeth(name):
     return do_single, do_multi
 
 
+class InstanceReference(weakref.ref):
+    """
+    This magical class exists because we can't really have a __del__ method
+    without actually leaking all over the place. This allows us to cooperate
+    with python's cyclic GC, while ensuring that the underlying C handle gets
+    freed when the object is no longer in scope.
+
+    Note that while we could use FFI's 'gc' functionality, this wouldn't help
+    us with all the custom dtor hooks and such (which are embedded into the
+    tests).
+
+    Use the `dtorhook` property to register your own callback. The callback
+    will be invoked after the underlying C handle is destroyed.
+    """
+    INSTANCES = {}
+
+    def __new__(cls, bucket):
+        instance = bucket._lcbh
+        ret = weakref.ref.__new__(cls, bucket, lambda x: x._dtor())
+        cls.INSTANCES[instance] = ret
+        return ret
+
+    def _invoke_hooks(self):
+        if self.dtorhook:
+            self.dtorhook()
+
+    def _async_dtor_cb(self, *_):
+        self._invoke_hooks()
+        del self.INSTANCES[self.instance]
+
+    def _dtor(self):
+        if self.instance not in self.INSTANCES:
+            self._invoke_hooks()
+            return
+
+        if not self._is_async:
+            C.lcb_destroy(self.instance)
+            if self.dtorhook:
+                self.dtorhook()
+                del self.INSTANCES[self.instance]
+        else:
+            C.lcb_set_destroy_callback(self.instance, self._boundcb)
+            C.lcb_destroy_async(self.instance, ffi.NULL)
+
+    def __init__(self, bucket):
+        self.dtorhook = None
+        self._is_async = bucket._is_async
+        self._boundcb = ffi.callback('void(const void*)', self._async_dtor_cb)
+        self.instance = bucket._lcbh
+
+    @classmethod
+    def delref(cls, bucket):
+        """
+        Clears the instance reference for a given bucket.
+
+        This should be called if destroying the `lcb_t` handle manually.
+        :param bucket: The bucket
+        """
+        del cls.INSTANCES[bucket._lcbh]
+
+    @classmethod
+    def getref(cls, bucket):
+        """
+        Retrieves the :class:`InstanceReference` object associated with
+        the provided `bucket`. The bucket must have previously registered
+        itself via :meth:`addref`
+        :param bucket: The bucket
+        :return: The InstanceReference object
+        """
+        return cls.INSTANCES[bucket._lcbh]
+
+    @classmethod
+    def addref(cls, bucket):
+        """
+        Adds the bucket's lcb_t to be destroyed when the bucket is
+        destroyed. To add special hooks, simply call the :meth:getref()
+        """
+        return cls(bucket)
+
+
 class Bucket(object):
+    # I'm using slots here because i have a LOT of attributes and I want to
+    # make sure i'm not assigning to anything silly:
+
     __slots__ = [
         # Private to cffi
         '_handles', '_lcbh', '_bound_cb', '_executors', '_iowrap',
-        '__bucket', '_lock', '_lockmode', '_pipeline_queue',
+        '__bucket', '_lock', '_lockmode', '_pipeline_queue', '_make_mres',
+        '_embedref',
 
         # Property holders
-        '__default_format', '__quiet',
+        '__default_format', '__quiet', '__connected', '__dtor_handle',
 
         # User-facing
         '__transcoder', 'data_passthrough',
 
         # Internal (used by couchbase and couchbase_ffi
         '_dur_persist_to', '_dur_replicate_to', '_dur_timeout', '_dur_testhook',
-        '_privflags'
+        '_privflags', '_conncb'
     ]
 
     @property
@@ -84,7 +158,8 @@ class Bucket(object):
                  username=None, password=None, quiet=False,
                  transcoder=None, default_format=FMT_JSON,
                  lockmode=LOCKMODE_EXC, unlock_gil=True,
-                 _iops=None, _conntype=C.LCB_TYPE_BUCKET):
+                 _iops=None, _conntype=C.LCB_TYPE_BUCKET,
+                 _flags=0):
 
         crst = ffi.new('struct lcb_create_st*')
         bm = BufManager(ffi)
@@ -128,6 +203,10 @@ class Bucket(object):
             'stats': ffi.callback(CALLBACK_DECL, self._stats_callback),
             'http': ffi.callback(CALLBACK_DECL, self._http_callback),
             '_default': ffi.callback(CALLBACK_DECL, self._default_callback),
+            '_bootstrap': ffi.callback('void(lcb_t,lcb_error_t)',
+                                       self._bootstrap_callback),
+            '_dtor': ffi.callback('void(const void*)',
+                                  self._instance_destroyed)
         }
 
         self._executors = {
@@ -158,13 +237,11 @@ class Bucket(object):
         self._install_cb(C.LCB_CALLBACK_OBSERVE, 'observe')
         self._install_cb(C.LCB_CALLBACK_STATS, 'stats')
         self._install_cb(C.LCB_CALLBACK_HTTP, 'http')
+        C.lcb_set_bootstrap_callback(self._lcbh, self._bound_cb['_bootstrap'])
 
         # Set our properties
         self.data_passthrough = False
-        self.__transcoder = transcoder or _make_transcoder()
-        self.__default_format = FMT_JSON
-        self.__quiet = False
-
+        self.transcoder = transcoder or _make_transcoder()
         self.default_format = default_format
         self.quiet = quiet
 
@@ -172,15 +249,16 @@ class Bucket(object):
         self._dur_replicate_to = 0
         self._dur_timeout = 0
         self._dur_testhook = None
-        self._privflags = 0
+        self._privflags = _flags
+        self._conncb = None
         self.__bucket = self._cntl(C.LCB_CNTL_BUCKETNAME, value_type='string')
-
-        if not unlock_gil:
-            # We don't use this property, but tests depend on this
-            lockmode = LOCKMODE_NONE
-        self._lockmode = lockmode
+        self.__connected = False
+        self._lockmode = lockmode if unlock_gil else LOCKMODE_NONE
         self._lock = Lock()
         self._pipeline_queue = None
+
+        self._embedref = None
+        InstanceReference.addref(self)
 
     @property
     def default_format(self):
@@ -225,6 +303,33 @@ class Bucket(object):
             arg = _make_transcoder()
         self.__transcoder = arg
 
+    @property
+    def _is_async(self):
+        return self._privflags & PYCBC_CONN_F_ASYNC
+
+    @property
+    def connected(self):
+        return self.__connected
+
+    @property
+    def _wref(self):
+        return self._embedref if self._embedref \
+            else InstanceReference.getref(self)
+
+    @property
+    def _dtorcb(self):
+        return self._wref.dtorhook
+
+    @_dtorcb.setter
+    def _dtorcb(self, newval):
+        self._wref.dtorhook = newval
+
+    def _make_mres(self):
+        if self._is_async:
+            return AsyncResult()
+        else:
+            return MultiResult()
+
     def _install_cb(self, cbtype, name):
         C.lcb_install_callback3(self._lcbh, cbtype, self._bound_cb[name])
 
@@ -233,13 +338,29 @@ class Bucket(object):
         if rc != C.LCB_SUCCESS:
             raise pycbc_exc_lcb(rc)
 
+        if self._is_async:
+            return
+
         C.lcb_wait(self._lcbh)
         rc = C.lcb_get_bootstrap_status(self._lcbh)
         if rc != C.LCB_SUCCESS:
             raise pycbc_exc_lcb(rc)
+        self.__connected = True
 
-    def _make_mres(self):
-        return MultiResult()
+    def _bootstrap_callback(self, _, status):
+        arg = None
+        self.__connected = True
+        if status != C.LCB_SUCCESS:
+            try:
+                raise pycbc_exc_lcb(status)
+            except Exception as e:
+                # Note _libcouchbase.so does this as well!
+                arg = e
+
+        if self._conncb:
+            cb = self._conncb
+            self._conncb = None
+            cb(arg)
 
     def _do_lock(self):
         if self._lockmode == LOCKMODE_NONE:
@@ -297,15 +418,25 @@ class Bucket(object):
             self._pipeline_queue.append(mres)
         return mres
 
+    def _run_async(self, mres):
+        self._handles.add(mres)
+        return mres
+
     def _run_sync_single(self, mres):
         return self._run_sync(mres).unwrap_single()
 
     def _run_single(self, mres):
-        return self._run_sync_single(mres)
+        if not self._is_async:
+            return self._run_sync_single(mres)
+        else:
+            return self._run_async(mres)
 
     def _run_multi(self, mres):
         mres._is_single = False
-        return self._run_sync(mres)
+        if not self._is_async:
+            return self._run_sync(mres)
+        else:
+            return self._run_async(mres)
 
     def _execute_single_k(self, name, key, **kwargs):
         self._do_lock()
@@ -353,17 +484,21 @@ class Bucket(object):
 
         locals().update({n_single: m_single, n_multi: m_multi})
 
+    # This name is used by couchbase.bucket.Bucket
     def _stats(self, kv):
         return self._execute_multi('stats', kv)
 
-
-    # Unlock is special:
+    # Unlock is special since we document the bare second arg as meaning
+    # the CAS
     def unlock(self, key, cas, **kwargs):
         kwargs['cas'] = cas
         return self._unlock(key, **kwargs)
 
+    # noinspection PyUnresolvedReferences
     unlock_multi = _unlock_multi
+    # noinspection PyUnresolvedReferences
     _rgetix = _rget
+    # noinspection PyUnresolvedReferences
     _rgetix_multi = _rget_multi
 
     def _view_request(self, design, view, options, include_docs):
@@ -400,16 +535,33 @@ class Bucket(object):
     def _closed(self):
         return self._privflags & PYCBC_CONN_F_CLOSED
 
-    def _close(self):
-        if self._closed:
+    def _close(self, is_async=False):
+        if self._closed or not self._lcbh:
             return
 
-        if self._lcbh:
+        # Delete the reference to ourselves
+        wref = InstanceReference.getref(self)
+        InstanceReference.delref(self)
+        self._embedref = wref
+
+        if not is_async:
             C.lcb_destroy(self._lcbh)
-            lcb_pp = ffi.new('lcb_t*')
-            C.lcb_create(lcb_pp, ffi.NULL)
-            self._lcbh = lcb_pp[0]
-            self._privflags |= PYCBC_CONN_F_CLOSED
+        else:
+            C.lcb_set_destroy_callback(self._lcbh, self._bound_cb['_dtor'])
+            C.lcb_destroy_async(self._lcbh, ffi.NULL)
+
+        lcb_pp = ffi.new('lcb_t*')
+        C.lcb_create(lcb_pp, ffi.NULL)
+        self._lcbh = lcb_pp[0]
+        self._privflags |= PYCBC_CONN_F_CLOSED
+
+    def _instance_destroyed(self, _):
+        if self._dtorcb:
+            self._dtorcb()
+            self._dtorcb = None
+
+    def _async_shutdown(self):
+        self._close(is_async=True)
 
     @property
     def server_nodes(self):
@@ -426,6 +578,16 @@ class Bucket(object):
 
         return s_list
 
+    def _chk_op_done(self, mres):
+        if not mres:
+            return
+        if not mres._decr_remaining():
+            return
+        # So the result is complete
+        self._handles.remove(mres)
+        if self._is_async:
+            mres.invoke()
+
     def _chain_endure(self, optype, mres, result, dur):
         persist_to, replicate_to = dur
         proc = self._executors['_chained_endure']
@@ -441,9 +603,10 @@ class Bucket(object):
             return False
 
     def _default_callback(self, *args):
-        self._callback_common(*args)
+        _, mres = self._callback_common(*args)
+        self._chk_op_done(mres)
 
-    def _callback_common(self, instance, cbtype, resp, do_decr=True):
+    def _callback_common(self, _, cbtype, resp):
         mres = ffi.from_handle(resp.cookie)
         buf = bytes(ffi.buffer(resp.key, resp.nkey))
         try:
@@ -465,17 +628,11 @@ class Bucket(object):
             if self._chain_endure(cbtype, mres, result, mres._dur):
                 return None, None
 
-        if do_decr and mres._decr_remaining():
-            try:
-                self._handles.remove(mres)
-            except KeyError:
-                # traceback.print_stack()
-                raise
-
         return result, mres
 
     def _storage_callback(self, instance, cbtype, resp):
-        self._callback_common(instance, cbtype, resp)
+        _, mres = self._callback_common(instance, cbtype, resp)
+        self._chk_op_done(mres)
 
     def _get_callback(self, instance, cbtype, resp):
         result, mres = self._callback_common(instance, cbtype, resp)
@@ -497,27 +654,28 @@ class Bucket(object):
             else:
                 result.value = buf[::]
 
+        self._chk_op_done(mres)
+
     def _remove_callback(self, instance, cbtype, resp):
-        self._callback_common(instance, cbtype, resp)
+        _, mres = self._callback_common(instance, cbtype, resp)
+        self._chk_op_done(mres)
 
     def _counter_callback(self, instance, cbtype, resp):
         result, mres = self._callback_common(instance, cbtype, resp)
         if not resp.rc:
             resp = ffi.cast('lcb_RESPCOUNTER*', resp)
             result.value = resp.value
+        self._chk_op_done(mres)
 
     def _observe_callback(self, instance, cbtype, resp):
         resp = ffi.cast('lcb_RESPOBSERVE*', resp)
         if resp.rflags & C.LCB_RESP_F_FINAL:
             mres = ffi.from_handle(resp.cookie)
-            if mres._decr_remaining():
-                self._handles.remove(mres)
-
+            self._chk_op_done(mres)
             return
 
         rc = resp.rc
-        result, mres = self._callback_common(
-            instance, cbtype, resp, do_decr=False)
+        result, mres = self._callback_common(instance, cbtype, resp)
 
         if rc:
             if not result.rc:
@@ -530,6 +688,7 @@ class Bucket(object):
         oi.from_master = resp.ismaster
         result.value.append(oi)
 
+    # noinspection PyUnusedLocal
     def _stats_callback(self, instance, cbtype, resp):
         resp = ffi.cast('lcb_RESPSTATS*', resp)
         mres = ffi.from_handle(resp.cookie)
@@ -540,8 +699,7 @@ class Bucket(object):
             mres._add_bad_rc(resp.rc, r)
 
         if resp.key == ffi.NULL and resp.server == ffi.NULL:
-            if mres._decr_remaining():
-                self._handles.remove(mres)
+            self._chk_op_done(mres)
             return
 
         if resp.rc:
@@ -567,11 +725,6 @@ class Bucket(object):
         htres = mres[None]
         self._handles.remove(mres)
         htres._handle_response(mres, resp)
-
-    def __del__(self):
-        if hasattr(self, '_lcbh') and self._lcbh:
-            C.lcb_destroy(self._lcbh)
-            self._lcbh = None
 
     def _warn_dupkey(self, k):
         """

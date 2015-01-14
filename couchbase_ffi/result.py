@@ -146,6 +146,7 @@ class MultiResult(dict):
         except PyCBC.default_exception as e:
             e.all_results = self
             e.key = result.key
+            e.result = result
             self._add_err(sys.exc_info())
 
     def _decr_remaining(self):
@@ -184,4 +185,25 @@ class MultiResult(dict):
 
 
 class AsyncResult(MultiResult):
-    pass
+    def __init__(self):
+        super(AsyncResult, self).__init__()
+        self.callback = None
+        self.errback = None
+
+    def clear_callbacks(self):
+        self.callback = None
+        self.errback = None
+
+    def invoke(self):
+        cb, eb = self.callback, self.errback
+        self.clear_callbacks()
+
+        try:
+            self._maybe_throw()
+        except:
+            eb(self, *sys.exc_info())
+            return
+
+        res = self.unwrap_single() if self._is_single else self
+        cb(res)
+        del res

@@ -35,8 +35,6 @@ _libcouchbase = None
 
 
 class LibcouchbaseModule(object):
-    Transcoder = None
-
     def __getattr__(self, item):
         if _libcouchbase is not None and hasattr(_libcouchbase, item):
             return getattr(_libcouchbase, item)

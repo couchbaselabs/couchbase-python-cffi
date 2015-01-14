@@ -28,7 +28,7 @@ class ViewResult(Result):
         self._options = options
         self._include_docs = include_docs
         self._parent = None
-        self._rows = []
+        self.rows = []
         self._rows_per_call = 0
         self._bound_cb = ffi.callback(ROWCB_DECL, self._on_single_row)
         self.done = False
@@ -38,6 +38,13 @@ class ViewResult(Result):
     @property
     def key(self):
         return 'VIEW[{0}/{1}]'.format(self._ddoc, self._view)
+
+    @property
+    def rows_per_call(self):
+        return self._rows_per_call
+    @rows_per_call.setter
+    def rows_per_call(self, val):
+        self._rows_per_call = int(val)
 
     def _schedule(self, parent, mres):
         bm = BufManager(ffi)
@@ -93,6 +100,35 @@ class ViewResult(Result):
                 self.value = buf2str(resp.htresp.body, resp.htresp.nbody)
             self.http_status = resp.htresp.htstatus
 
+        if self._parent._is_async:
+            try:
+                mres._maybe_throw()
+                self._invoke_async(mres, is_final=True)
+            except:
+                mres.errback(mres, *sys.exc_info())
+            finally:
+                del self._parent
+
+    def _should_call(self, is_final):
+        if is_final:
+            return True
+        return -1 < self._rows_per_call < len(self.rows)
+
+    def _invoke_async(self, mres, is_final=False):
+        # if (rd->type == LCBEX_VROW_ROW) {
+        #     return vres->rows_per_call > -1 &&
+        #     PyList_GET_SIZE(vres->rows) > vres->rows_per_call;
+        # } else {
+        #     return PyList_GET_SIZE(vres->rows);
+        # }
+        if not self._should_call(is_final=is_final):
+            return
+
+        cb = mres.callback
+        if cb:
+            cb(mres)
+            self.rows = []
+
     def _on_single_row(self, instance, cbtype, resp):
         mres = ffi.from_handle(resp.cookie)
         if resp.rflags & C.LCB_RESP_F_FINAL:
@@ -129,12 +165,15 @@ class ViewResult(Result):
                     py_doc.value = buf[::]
 
         # So now that we have a row..
-        self._rows.append(row)
+        self.rows.append(row)
+        if self._parent._is_async:
+            self._invoke_async(mres)
+
 
     def fetch(self, mres):
         C.lcb_wait(self._parent._lcbh)
-        ret = self._rows
-        self._rows = []
+        ret = self.rows
+        self.rows = []
         mres._maybe_throw()
         return ret
 

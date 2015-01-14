@@ -10,7 +10,7 @@ from couchbase_ffi.iops import Event, IOEvent, TimerEvent
 
 ffi, C = get_handle()
 
-_IMPL_INCLUDE_DOCS=True
+_IMPL_INCLUDE_DOCS = True
 
 
 def lcb_version():
@@ -30,6 +30,8 @@ def _modify_helpers(**kw):
 
 
 def _init_helpers(**kv):
+    # import traceback
+    # traceback.print_stack()
     # print("Bootstrap invoked!")
     _modify_helpers(**kv)
     # One special item still needs importing
@@ -50,6 +52,7 @@ def _get_errtype(rc):
     return C.lcb_get_errtype(rc)
 
 
+# noinspection PyUnresolvedReferences
 def _stage2_bootstrap():
     """
     This is the second bootstrap stage. It should be called
@@ -59,7 +62,6 @@ def _stage2_bootstrap():
     dependencies which depend on that name. The stage2 loads these
     dependencies which ultimately depend on ourselves :)
     """
-    # noinspection PyUnresolvedReferences
     from couchbase_ffi.result import (
         Item,
         Result,
@@ -74,3 +76,23 @@ def _stage2_bootstrap():
     globals().update(locals())
     from couchbase_ffi.bucket import Bucket
     globals()['Bucket'] = Bucket
+
+    from couchbase import _bootstrap
+    globals()['Transcoder'] = None
+    import couchbase.transcoder
+
+    class _Transcoder(couchbase.transcoder.TranscoderPP):
+        def _do_json_encode(self, value):
+            return PyCBC.json_encode(value)
+
+        def _do_json_decode(self, value):
+            return PyCBC.json_decode(value)
+
+        def _do_pickle_encode(self, value):
+            return PyCBC.pickle_encode(value)
+
+        def _do_pickle_decode(self, value):
+            return PyCBC.pickle_decode(value)
+
+    globals()['Transcoder'] = _Transcoder
+    couchbase.transcoder.Transcoder = _Transcoder
