@@ -25,7 +25,7 @@ setup_args = {
     'packages': ['couchbase_ffi'],
     'package_data': {'couchbase_ffi':['_lcb.h']},
     'name': 'couchbase_ffi',
-    'version': '0.1.0',
+    'version': '0.2.0.0',
     'url': 'https://github.com/couchbaselabs/couchbase-python-cffi'
 }
 
