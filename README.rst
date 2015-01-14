@@ -5,31 +5,37 @@ Couchbase FFI
 .. image:: https://travis-ci.org/couchbaselabs/couchbase-python-cffi.png
     :target: https://travis-ci.org/couchbaselabs/couchbase-python-cffi
 
-This project aims to supplant much of the Couchbase Python SDK functionality
-with variants written in Python. Interactions with libcouchbase will still be
-performed using `cffi`
-
-This project is mainly of use to PyPy, as this performs quicker (and is more
-stable) than the C extension using PyPy's `cpyext` layer. For CPython this
-module is rather slow and should not be used (though there is no reason why it
-should not work).
-
-This aims to be a drop-in replacement for the `couchbase` module, though it
-currently depends on it for some other routines (mainly some of the module
-and object structure which has not yet been re-implemented).
-
+This provides the FFI backend for the
+`couchbase <http://github.com/couchbase/couchbase-python-client>`_ module. This
+project is mainly of use to those who wish to use the couchbase module with
+`pypy`. Normal CPython extensions do not work very well on pypy, and thus
+the recommended way of interfacing via `pypy` in a C library is to use the
+`cffi` module.
 
 Using
 -----
 
-Currently I don't know how to make a proper ``setup.py`` for a ``cffi``-based
-project.
+**WARNING** - This module still depends on un-merged features in both
+*libcouchbase* and the *couchbase* proejcts. This means the
+module will likely not work yet. Please use the master branch.
 
-You will need the ``couchbase``
-(https://github.com/couchbase/couchbase-python-client) installed. This will
-also assume you have libcouchbase, its headers. After that, simply use the
-``couchbase_ffi.connection.Connection`` class as you would the
-``couchbase.connection.Connection`` class.
+You will need the `cffi` Python module (the newer, the better), the libcouchbase
+development files, and the actual `couchbase` module (see its instructions for
+how to build it).
+
+Once you've built all that, you must load this module first before any others;
+thus::
+
+    import couchbase_ffi
+    from couchbase.bucket import Bucket
+    # ...
+
+
+This module will **inject itself** as the ``couchbase._libcouchbase`` module,
+allowing you to use anything that depends on the C extension normally.
+
+This module does *not* monkey-patch the couchbase ``Bucket`` class, but rather
+the underlying C internals; therefore the ability of a drop-in increases.
 
 The first time you use the module, the `couchbase_ffi._cinit` module will
 attempt to generate the appropriate stubs for the library. Regeneration may
@@ -39,27 +45,26 @@ Because regenerating the header might involve some hacks in dynamically
 patching the header file to make it acceptable to `pycparser`, it may fail
 at times.
 
-If the `_cinit` module fails to generate a header, you may attempt to use
-one from the ``cpp-generated`` directory. Copy the appropriate header file
-(named according to libcouchbase version and platform) as
-``couchbase_ffi/_lcb.h``.
 
 Ennvironment variables affecting how the headers are built:
 
 * ``PYCBC_CFFI_REGENERATE`` forces the header to be rebuilt
 * ``PYCBC_CFFI_PREFIX`` sets the installation prefix for libcouchbase
 
+
+Implemented Features
+--------------------
+
+Everything the normal C extension supports. This has been tested using the
+normal `couchbase.tests` module *and* the twisted tests.
+
+I may have missed something here and there, but I can't think of anything
+that isn't supported.
+
 TODO
 ----
 
-The following features have not yet been implemented. They are planned:
-
-* Replica reads
-* ``streaming`` option with Views
-* Pipeline Context Manager
-* Threading
-
-Twisted and gevent support will never be supported by this module.
+Better tests.
 
 Performance
 -----------
@@ -80,3 +85,25 @@ FFI (CPython)   4        4600
 Ext (PyPy)      4        4400
 Ext (CPython)   4        27000
 ==============  =======  =======
+
+
+For twisted:
+
+==============  =======  =======
+--------------  -------  -------
+Implementation  C/T      Ops/Sec
+==============  =======  =======
+FFI (PyPy)      1/1      5850
+FFI (CPython)   1/1      2600
+Ext (CPython)   1/1      5950
+FFI (PyPy)      4/4      26000
+FFI (CPython)   4/4      7500
+Ext (CPython)   4/4      33600
+FFI (PyPy)      10/10    32557
+FFI (CPython)   10/10    9290
+Ext (CPython)   10/10    42160
+==============  =======  =======
+
+
+The *T* and *C* values show how many total clients were spawned, and how many
+independent logical sequences (threads) of operations were being performed.
