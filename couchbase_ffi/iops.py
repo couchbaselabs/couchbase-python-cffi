@@ -116,7 +116,6 @@ ALL_REFS = set()
 @ffi.callback('void(lcb_io_opt_t)')
 @to_pyio
 def destructor(self, io):
-    print 'Removing...'
     ALL_REFS.remove(self)
 
 @ffi.callback('''void(

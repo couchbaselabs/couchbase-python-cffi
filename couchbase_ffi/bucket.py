@@ -136,7 +136,7 @@ class Bucket(object):
     __slots__ = [
         # Private to cffi
         '_handles', '_lcbh', '_bound_cb', '_executors', '_iowrap',
-        '__bucket', '_lock', '_lockmode', '_pipeline_queue', '_make_mres',
+        '__bucket', '_lock', '_lockmode', '_pipeline_queue',
         '_embedref',
 
         # Property holders

@@ -83,7 +83,7 @@ class _PyCBC_Class(object):
         try:
             cls = self.lcb_errno_map[rc]
         except KeyError:
-            cls = self.default_exception
+            cls = self.default_exception.rc_to_exctype(rc)
         raise cls({'rc': rc, 'message': msg})
 
     def exc_lock(self, msg=None):

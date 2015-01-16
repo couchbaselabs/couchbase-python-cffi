@@ -194,6 +194,9 @@ class AsyncResult(MultiResult):
         self.callback = None
         self.errback = None
 
+    def set_callbacks(self, callback, errback):
+        self.callback, self.errback = callback, errback
+
     def invoke(self):
         cb, eb = self.callback, self.errback
         self.clear_callbacks()
