@@ -45,6 +45,10 @@ void _Cb_set_val(void *cmd, const void *val, size_t nval) {
 void _Cb_do_callback(lcb_socket_t s, short events, lcb_ioE_callback cb, void *arg) {
     cb(s, events, arg);
 }
+LIBCOUCHBASE_API
+lcb_error_t
+lcb_n1p_synctok_for(lcb_N1QLPARAMS *params, lcb_t instance,
+            const void *key, size_t nkey) { return LCB_SUCCESS; }
 """
 
 RX_SHIFT = re.compile(r'(\(?\d+\)?)\s*((?:<<)|(?:>>)|(?:\|))\s*(\(?\d+\)?)')
