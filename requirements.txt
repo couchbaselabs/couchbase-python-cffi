@@ -1,2 +1,2 @@
-cffi
-couchbase
+cffi >= 0.8.0
+git+http://github.com/couchbase/couchbase-python-client@2.0.0-beta2
