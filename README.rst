@@ -12,6 +12,9 @@ project is mainly of use to those who wish to use the couchbase module with
 the recommended way of interfacing via `pypy` in a C library is to use the
 `cffi` module.
 
+**See the _1.x_ branch for the version of this module that uses the 1.x client
+and API (though ffi module in that branch is no longer maintained)**
+
 Using
 -----
 
@@ -22,7 +25,8 @@ how to build it).
 **Each version of the CFFI library has a strict dependency on an exact version
 of the couchbase Python client, due to the tight coupling of internals**.
 
-**The current version depends on**
+**The current version depends on**:
+
 * libcouchbase > 2.4.7
 * couchbase = 2.0.0-beta2 (or 2.0.0b2)
 
