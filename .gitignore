@@ -1,6 +1,6 @@
 *.c
 *.so
-*.py
+/*.py
 *__pycache__*
 *.pyc
 couchbase_ffi/_lcb.h
