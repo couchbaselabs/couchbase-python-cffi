@@ -18,6 +18,7 @@ CPP_INPUT = """
 #include <libcouchbase/couchbase.h>
 #include <libcouchbase/api3.h>
 #include <libcouchbase/views.h>
+#include <libcouchbase/n1ql.h>
 
 void _Cb_set_key(void*,const void*, size_t);
 void _Cb_set_val(void*,const void*, size_t);
@@ -33,6 +34,7 @@ VERIFY_INPUT = """
 #include <libcouchbase/couchbase.h>
 #include <libcouchbase/api3.h>
 #include <libcouchbase/views.h>
+#include <libcouchbase/n1ql.h>
 
 void _Cb_set_key(void *cmd, const void *key, size_t nkey) {
     LCB_CMD_SET_KEY((lcb_CMDBASE*)cmd, key, nkey);
@@ -190,6 +192,7 @@ def get_handle():
 #define LCB_CNTL_BUCKETNAME ...
 #define LCB_CNTL_VBMAP ...
 #define LCB_CMDVIEWQUERY_F_INCLUDE_DOCS ...
+#define LCB_N1P_QUERY_STATEMENT ...
 ''')
 
     C = ffi.verify(VERIFY_INPUT,

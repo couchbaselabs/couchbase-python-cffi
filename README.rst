@@ -15,13 +15,16 @@ the recommended way of interfacing via `pypy` in a C library is to use the
 Using
 -----
 
-**WARNING** - This module still depends on un-merged features in both
-*libcouchbase* and the *couchbase* proejcts. This means the
-module will likely not work yet. Please use the master branch.
-
 You will need the `cffi` Python module (the newer, the better), the libcouchbase
 development files, and the actual `couchbase` module (see its instructions for
 how to build it).
+
+**Each version of the CFFI library has a strict dependency on an exact version
+of the couchbase Python client, due to the tight coupling of internals**.
+
+**The current version depends on**
+* libcouchbase > 2.4.7
+* couchbase = 2.0.0-beta2 (or 2.0.0b2)
 
 Once you've built all that, you must load this module first before any others;
 thus::
