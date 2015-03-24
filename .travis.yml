@@ -12,8 +12,8 @@ before_install:
   - sudo apt-cache search libcouchbase
 
 install:
-  - sudo apt-get -y install libcouchbase-dev libcouchbase2-core libcouchbase2-libevent libevent-dev
-  - pip install couchbase
+  - sudo apt-get -y install libcouchbase-dev libcouchbase2-core
+  - pip install -r requirements.txt
 
 script:
   - python setup.py test
