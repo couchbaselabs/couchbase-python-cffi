@@ -67,8 +67,12 @@ def do_replace_vals(dh, decl):
 
 
 def handle_enumvals(defhash, linedecl):
-    # First, inspect to see if there is any funky magic going on here,
-    # this can include things like shifts and the like
+    """
+    Handles the possible declaration of a "Calculated" enumeration value.
+    :param defhash:
+    :param linedecl:
+    :return:
+    """
     linedecl = linedecl.strip()
     cur_decls = []
 
@@ -91,7 +95,7 @@ def handle_enumvals(defhash, linedecl):
         else:
             postamble = ""
 
-        print(decl)
+        # print(decl)
         name, val = decl.split('=', 1)
         name = name.strip()
         val = val.strip()
@@ -102,7 +106,7 @@ def handle_enumvals(defhash, linedecl):
 
             continue
 
-        print("Handling", decl)
+        # print("Handling", decl)
         while RX_SHIFT.search(val):
             val = RX_SHIFT.sub(shift_replace, val)
 
@@ -121,7 +125,7 @@ def handle_enumvals(defhash, linedecl):
     return ret
 
 
-CPP_COMMON = ['gcc', '-E', '-Wall', '-Wextra',
+CPP_COMMON = ['gcc', '-E',
               '-I{0}'.format(FAKE_INKPATH), '-I{0}/include'.format(LCB_ROOT),
               '-std=c89', '-xc']
 
@@ -148,6 +152,7 @@ def _exec_cpp():
     outlines = []
     defhash = {}
 
+    print('couchbase_ffi.. sanitizing declarations for preprocessor')
     for l in lines:
         if l.startswith('#'):
             continue
