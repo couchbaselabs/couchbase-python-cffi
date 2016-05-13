@@ -44,6 +44,8 @@ class _PyCBC_Class(object):
         self.fmt_auto = None
         self.pypy_mres_factory = None
         self.view_path_helper = None
+        self.sd_result_type = None
+        self.sd_multival_type = None
 
     def configure(self, key, value):
         if not hasattr(self, key):
@@ -79,12 +81,12 @@ class _PyCBC_Class(object):
     def exc_enc(self, msg='Bad key/value encoding', obj=None):
         self.exc_common(PYCBC_EXC_ENCODING, msg, 0, objextra=obj)
 
-    def exc_lcb(self, rc, msg='Operational error'):
+    def exc_lcb(self, rc, msg='Operational error', obj=None):
         try:
             cls = self.lcb_errno_map[rc]
         except KeyError:
             cls = self.default_exception.rc_to_exctype(rc)
-        raise cls({'rc': rc, 'message': msg})
+        raise cls({'rc': rc, 'message': msg, 'obj': obj})
 
     def exc_lock(self, msg=None):
         if msg is None:

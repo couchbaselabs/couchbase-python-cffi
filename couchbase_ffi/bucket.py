@@ -3,9 +3,11 @@ import warnings
 import weakref
 from threading import Lock
 
+from couchbase._pyport import xrange
+
 from couchbase_ffi._cinit import get_handle
 from couchbase_ffi.result import (
-    MultiResult, ObserveInfo, ValueResult, AsyncResult
+    MultiResult, ObserveInfo, ValueResult, AsyncResult, _SDResult
 )
 from couchbase_ffi.view import ViewResult
 from couchbase_ffi.http import HttpRequest
@@ -24,7 +26,7 @@ from couchbase_ffi.constants import (
 ffi, C = get_handle()
 
 
-CALLBACK_DECL = 'void(lcb_t,int,const lcb_RESPBASE*)'
+CALLBACK_DECL = 'void(lcb_t,int,lcb_RESPBASE*)'
 
 
 def _make_transcoder():
@@ -96,7 +98,7 @@ class InstanceReference(weakref.ref):
     def __init__(self, bucket):
         self.dtorhook = None
         self._is_async = bucket._is_async
-        self._boundcb = ffi.callback('void(const void*)', self._async_dtor_cb)
+        self._boundcb = ffi.callback('void(void*)', self._async_dtor_cb)
         self.instance = bucket._lcbh
 
     @classmethod
@@ -147,7 +149,7 @@ class Bucket(object):
 
         # Internal (used by couchbase and couchbase_ffi
         '_dur_persist_to', '_dur_replicate_to', '_dur_timeout', '_dur_testhook',
-        '_privflags', '_conncb'
+        '_privflags', '_conncb', '_sd_entry', '_sd_iterpos'
     ]
 
     @property
@@ -197,6 +199,7 @@ class Bucket(object):
         self._bound_cb = {
             'store': ffi.callback(CALLBACK_DECL, self._storage_callback),
             'get': ffi.callback(CALLBACK_DECL, self._get_callback),
+            'subdoc': ffi.callback(CALLBACK_DECL, self._subdoc_callback),
             'remove': ffi.callback(CALLBACK_DECL, self._remove_callback),
             'counter': ffi.callback(CALLBACK_DECL, self._counter_callback),
             'observe': ffi.callback(CALLBACK_DECL, self._observe_callback),
@@ -205,7 +208,7 @@ class Bucket(object):
             '_default': ffi.callback(CALLBACK_DECL, self._default_callback),
             '_bootstrap': ffi.callback('void(lcb_t,lcb_error_t)',
                                        self._bootstrap_callback),
-            '_dtor': ffi.callback('void(const void*)',
+            '_dtor': ffi.callback('void(void*)',
                                   self._instance_destroyed)
         }
 
@@ -225,7 +228,9 @@ class Bucket(object):
             '_chained_endure': executors.DurabilityChainExecutor(self),
             'observe': executors.ObserveExecutor(self),
             'stats': executors.StatsExecutor(self),
-            '_rget': executors.GetReplicaExecutor(self)
+            '_rget': executors.GetReplicaExecutor(self),
+            'lookup_in': executors.SubdocLookupExecutor(self),
+            'mutate_in': executors.SubdocMutationExecutor(self)
         }
 
         self._install_cb(C.LCB_CALLBACK_DEFAULT, '_default')
@@ -237,6 +242,8 @@ class Bucket(object):
         self._install_cb(C.LCB_CALLBACK_OBSERVE, 'observe')
         self._install_cb(C.LCB_CALLBACK_STATS, 'stats')
         self._install_cb(C.LCB_CALLBACK_HTTP, 'http')
+        self._install_cb(C.LCB_CALLBACK_SDLOOKUP, 'subdoc')
+        self._install_cb(C.LCB_CALLBACK_SDMUTATE, 'subdoc')
         C.lcb_set_bootstrap_callback(self._lcbh, self._bound_cb['_bootstrap'])
 
         # Set our properties
@@ -260,6 +267,9 @@ class Bucket(object):
 
         self._embedref = None
         InstanceReference.addref(self)
+
+        self._sd_entry = ffi.new('lcb_SDENTRY*')
+        self._sd_iterpos = ffi.new('size_t*')
 
     @property
     def default_format(self):
@@ -475,7 +485,8 @@ class Bucket(object):
         finally:
             self._do_unlock()
 
-    _VALUE_METHS = ['upsert', 'insert', 'replace', 'append', 'prepend']
+    _VALUE_METHS = ['upsert', 'insert', 'replace', 'append', 'prepend',
+                    'mutate_in']
     _KEY_METHS = ['get', 'lock', 'touch', 'remove', 'counter',
                   'observe', 'endure', '_rget', '_unlock']
 
@@ -490,8 +501,8 @@ class Bucket(object):
         locals().update({n_single: m_single, n_multi: m_multi})
 
     # This name is used by couchbase.bucket.Bucket
-    def _stats(self, kv):
-        return self._execute_multi('stats', kv)
+    def _stats(self, kv, keystats=False):
+        return self._execute_multi('stats', kv, keystats=keystats)
 
     # Unlock is special since we document the bare second arg as meaning
     # the CAS
@@ -506,9 +517,19 @@ class Bucket(object):
     # noinspection PyUnresolvedReferences
     _rgetix_multi = _rget_multi
 
-    def _view_request(self, design, view, options, include_docs):
+    def lookup_in_multi(self, kv, **kw):
+        return self._execute_multi('lookup_in', kv, **kw)
+
+    def lookup_in(self, keyspec, **kwargs):
+        # Extract the key from the specs
+        from couchbase._pyport import single_dict_key
+        k = single_dict_key(keyspec)
+        specs = keyspec[k]
+        return self._execute_single_kv('lookup_in', k, specs, **kwargs)
+
+    def _view_request(self, design, view, options, _flags=0):
         self._chk_no_pipeline('View requests not valid in pipeline mode')
-        res = ViewResult(design, view, options, include_docs)
+        res = ViewResult(design, view, options, _flags=_flags)
         mres = self._make_mres()
         mres[None] = res
         res._schedule(self, mres)
@@ -609,6 +630,15 @@ class Bucket(object):
         if self._is_async:
             mres.invoke()
 
+    def _set_mutinfo(self, result, optype, rb):
+        if not result.success:
+            return
+        mt = C.lcb_resp_get_mutation_token(optype, rb)
+        if mt != ffi.NULL:
+            mt = (C._Cb_mt_vb(mt), C._Cb_mt_uuid(mt), C._Cb_mt_seq(mt),
+                  self.__bucket)
+            result._mutinfo = mt
+
     def _chain_endure(self, optype, mres, result, dur):
         persist_to, replicate_to = dur
         proc = self._executors['_chained_endure']
@@ -627,7 +657,7 @@ class Bucket(object):
         _, mres = self._callback_common(*args)
         self._chk_op_done(mres)
 
-    def _callback_common(self, _, cbtype, resp):
+    def _callback_common(self, _, cbtype, resp, is_mutator=False):
         mres = ffi.from_handle(resp.cookie)
         buf = bytes(ffi.buffer(resp.key, resp.nkey))
         try:
@@ -641,6 +671,9 @@ class Bucket(object):
             mres._add_bad_rc(resp.rc, result)
         else:
             result.cas = resp.cas
+            if is_mutator:
+                self._set_mutinfo(result, cbtype,
+                                  ffi.cast('lcb_RESPBASE*', resp))
 
         if self._dur_testhook:
             self._dur_testhook(result)
@@ -652,7 +685,65 @@ class Bucket(object):
         return result, mres
 
     def _storage_callback(self, instance, cbtype, resp):
-        _, mres = self._callback_common(instance, cbtype, resp)
+        _, mres = self._callback_common(instance, cbtype, resp, is_mutator=True)
+        self._chk_op_done(mres)
+
+    def _subdoc_callback(self, instance, cbtype, rb):
+        resp = ffi.cast('lcb_RESPSUBDOC*', rb)
+        mres = ffi.from_handle(resp.cookie)
+        buf = bytes(ffi.buffer(resp.key, resp.nkey))
+        try:
+            key = self._tc.decode_key(buf)
+            result = mres[key]  # type: _SDResult
+        except:
+            raise pycbc_exc_enc(buf)
+
+        result.rc = resp.rc
+        if resp.rc not in (C.LCB_SUCCESS, C.LCB_SUBDOC_MULTI_FAILURE):
+            mres._add_bad_rc(resp.rc, result)
+            self._chk_op_done(mres)
+            return
+        else:
+            result.cas = resp.cas
+
+        # naming conventions as in the Couchbase C extension
+        cur = self._sd_entry
+        vii = self._sd_iterpos
+        vii[0] = 0  # Reset iterator
+        oix = 0
+
+        is_mutate = cbtype == C.LCB_CALLBACK_SDMUTATE
+        while C.lcb_sdresult_next(resp, cur, vii) != 0:
+            if is_mutate:
+                cur_index = cur.index
+            else:
+                cur_index = oix
+                oix += 1
+            if cur.status == 0 and cur.nvalue:
+                buf = bytes(ffi.buffer(cur.value, cur.nvalue))
+                try:
+                    value = self._tc.decode_value(buf, FMT_JSON)
+                except:
+                    raise pycbc_exc_enc(obj=buf)
+            else:
+                value = None
+
+            cur_tuple = (cur.status, value)
+            if cur.status:
+                if is_mutate or cur.status != C.LCB_SUBDOC_PATH_ENOENT:
+                    spec = result._specs[cur_index]
+                    try:
+                        raise pycbc_exc_lcb(cur.status, 'Subcommand failure', obj=spec)
+                    except PyCBC.default_exception:
+                        mres._add_err(sys.exc_info())
+
+            result._add_result(cur_index, cur_tuple)
+
+        if is_mutate and result.success:
+            self._set_mutinfo(result, cbtype, rb)
+            if mres._dur and self._chain_endure(cbtype, mres, result, mres._dur):
+                return
+
         self._chk_op_done(mres)
 
     def _get_callback(self, instance, cbtype, resp):
@@ -678,11 +769,12 @@ class Bucket(object):
         self._chk_op_done(mres)
 
     def _remove_callback(self, instance, cbtype, resp):
-        _, mres = self._callback_common(instance, cbtype, resp)
+        _, mres = self._callback_common(instance, cbtype, resp, is_mutator=True)
         self._chk_op_done(mres)
 
     def _counter_callback(self, instance, cbtype, resp):
-        result, mres = self._callback_common(instance, cbtype, resp)
+        result, mres = self._callback_common(
+            instance, cbtype, resp, is_mutator=True)
         if not resp.rc:
             resp = ffi.cast('lcb_RESPCOUNTER*', resp)
             result.value = resp.value
@@ -758,3 +850,32 @@ class Bucket(object):
                 __file__, -1, module='couchbase_ffi.bucket', registry={})
         else:
             warnings.warn('Found duplicate keys!', RuntimeWarning)
+
+    def _mutinfo(self):
+        pp = ffi.new('void**')
+        kb = ffi.new('lcb_KEYBUF*')
+
+        rc = C.lcb_cntl(self._lcbh, C.LCB_CNTL_GET, C.LCB_CNTL_VBCONFIG, pp)
+        if rc:
+            pycbc_exc_lcb(rc, "Couldn't get vBucket config")
+        nvb = C.vbucket_config_get_num_vbuckets(pp[0])
+        ll = []
+        kb.type = C.LCB_KV_VBID
+
+        for vbid in xrange(nvb):
+            kb.contig.nbytes = vbid
+            mt = C.lcb_get_mutation_token(self._lcbh, kb, ffi.NULL)
+            if not mt:
+                continue
+            ll.append((C._Cb_mt_vb(mt), C._Cb_mt_uuid(mt), C._Cb_mt_seq(mt)))
+
+        return ll
+
+    def _add_creds(self, user, password):
+        bm = BufManager(ffi)
+        c_user = bm.new_cstr(user)
+        c_pass = bm.new_cstr(password)
+        pp = ffi.new('char*[2]', (c_user, c_pass))
+        rc = C.lcb_cntl(self._lcbh, C.LCB_CNTL_SET, C.LCB_CNTL_BUCKET_CRED, pp)
+        if rc:
+            pycbc_exc_lcb(rc)

@@ -70,7 +70,8 @@ def _stage2_bootstrap():
         ValueResult,
         OperationResult,
         HttpResult,
-        AsyncResult
+        AsyncResult,
+        _SDResult
     )
     from couchbase_ffi.n1ql import _N1QLParams
 
@@ -97,3 +98,27 @@ def _stage2_bootstrap():
 
     globals()['Transcoder'] = _Transcoder
     couchbase.transcoder.Transcoder = _Transcoder
+
+
+pycbc_log_handler = None
+
+
+@ffi.def_extern()
+def _Cb_log_handlerPy(objid, subsys, severity, srcfile, srcline, msg):
+    if not pycbc_log_handler:
+        return
+    pycbc_log_handler({
+        'message': msg,
+        'id': objid,
+        'level': severity,
+        'c_src': (srcfile, srcline),
+        'subsys': subsys
+    })
+
+
+def lcb_logging(*args):
+    global pycbc_log_handler
+    if args:
+        pycbc_log_handler, = args
+    return pycbc_log_handler
+

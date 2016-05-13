@@ -32,11 +32,22 @@ class Result(object):
 
 
 class OperationResult(Result):
-    # __slots__ = ['cas']
+    # __slots__ = ['cas', '_mutinfo']
     _fldprops = PYCBC_RESFLD_KEY | PYCBC_RESFLD_CAS
 
     def __init__(self):
         self.cas = 0
+
+    @property
+    def _mutinfo(self):
+        try:
+            return self.__mutinfo
+        except AttributeError:
+            return None
+
+    @_mutinfo.setter
+    def _mutinfo(self, mi):
+        self.__mutinfo = mi
 
 
 class ValueResult(OperationResult):
@@ -47,6 +58,22 @@ class ValueResult(OperationResult):
         super(ValueResult, self).__init__()
         self.value = None
         self.flags = 0
+
+
+class _SDResult(OperationResult):
+    # __slots__ = ['_results', '_specs']
+    _fldprops = PYCBC_RESFLD_KEY | PYCBC_RESFLD_CAS
+
+    def __init__(self):
+        super(_SDResult, self).__init__()
+        self._specs = ()
+        self._results = []
+
+    def _add_result(self, ix, item):
+        assert ix < len(self._specs)
+        if not self._results:
+            self._results = [None] * len(self._specs)
+        self._results[ix] = item
 
 
 class Item(ValueResult):
@@ -138,7 +165,8 @@ class MultiResult(dict):
             return
 
         self.all_ok = False
-        if rc == C.LCB_KEY_ENOENT and self._quiet:
+        if (rc == C.LCB_KEY_ENOENT and self._quiet) \
+                or rc == C.LCB_SUBDOC_MULTI_FAILURE:
             return
 
         try:

@@ -1,5 +1,6 @@
 *.c
 *.so
+*.o
 /*.py
 *__pycache__*
 *.pyc

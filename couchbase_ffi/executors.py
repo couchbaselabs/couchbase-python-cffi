@@ -1,13 +1,13 @@
 import types
 
-from couchbase._pyport import long, basestring
+from couchbase._pyport import long, basestring, xrange
 from couchbase.exceptions import ValueFormatError, ArgumentError, CouchbaseError
 from couchbase.items import ItemCollection
 
-from couchbase_ffi.result import (OperationResult, ValueResult)
-from couchbase_ffi.constants import FMT_UTF8
+from couchbase_ffi.result import (OperationResult, ValueResult, _SDResult, Item)
+from couchbase_ffi.constants import FMT_UTF8, FMT_JSON
 from couchbase_ffi._cinit import get_handle
-from couchbase_ffi._rtconfig import pycbc_exc_lcb, pycbc_exc_enc, pycbc_exc_args
+from couchbase_ffi._rtconfig import pycbc_exc_lcb, pycbc_exc_enc, pycbc_exc_args, PyCBC
 from couchbase_ffi.bufmanager import BufManager
 
 ffi, C = get_handle()
@@ -217,9 +217,6 @@ class BaseExecutor(object):
         self.parent = conn
         self.c_command = ffi.new(self.STRUCTNAME+'*')
 
-    def process_single_command(self, req, koptions):
-        raise NotImplementedError()
-
     @property
     def instance(self):
         return self.parent._lcbh
@@ -297,6 +294,8 @@ class BaseExecutor(object):
         """
         if is_itmcoll:
             item, key_options = next(iterobj)
+            if not isinstance(item, Item):
+                pycbc_exc_args('Expected item object')
             key = item.key
             value = item.value
             result = item
@@ -595,6 +594,99 @@ class CounterExecutor(BaseExecutor):
         return C.lcb_counter3(self.instance, mres._cdata, self.c_command)
 
 
+class SubdocExecutor(BaseExecutor):
+    STRUCTNAME = 'lcb_CMDSUBDOC'
+    VALUES_ALLOWED = True
+
+    def make_result(self, key, value):
+        vr = PyCBC.sd_result_type()  # type: _SDResult
+        vr.key = key
+        vr._specs = value
+        return vr
+
+    def __init__(self, *args):
+        super(SubdocExecutor, self).__init__(*args)
+
+    def _process_value(self, op, pyvalue, cspec, bm):
+        MULTIVAL_OPS = (
+            C.LCB_SDCMD_ARRAY_ADD_FIRST,
+            C.LCB_SDCMD_ARRAY_ADD_LAST, C.LCB_SDCMD_ARRAY_INSERT)
+        if isinstance(pyvalue, PyCBC.sd_multival_type) and op in MULTIVAL_OPS:
+            is_multival = True
+        else:
+            is_multival = False
+
+        encoded, _ = self.parent._tc.encode_value(pyvalue, FMT_JSON)
+        if is_multival:
+            encoded = encoded.strip()[1:-1]
+
+        if not len(encoded):
+            raise ValueFormatError.pyexc('Empty value passed', obj=pyvalue)
+
+        c_value, c_len = bm.new_cbuf(encoded)
+        # print(cspec, c_value, c_len)
+        C._Cb_set_sdval(cspec, c_value, c_len)
+
+    def _process_spec(self, pyspec, cspec, bm):
+        """
+        Process a single subdocument spec
+        :param pyspec: Python spec (tuple)
+        :param cspec: (out) - C spec
+        :param BufManager bm:
+        """
+        op, path = pyspec[0], pyspec[1]
+        c_path, c_pathlen = bm.new_cbuf(path)
+
+        if len(pyspec) > 2:
+            self._process_value(op, pyspec[2], cspec, bm)
+            if len(pyspec) > 3:
+                mkdir_p = pyspec[3]
+                if mkdir_p:
+                    cspec.options = C.LCB_SDSPEC_F_MKINTERMEDIATES
+
+        C._Cb_set_sdpath(cspec, c_path, c_pathlen)
+        cspec.sdcmd = op
+
+    def submit_single(self, c_key, c_len, value, item, key_options, global_options, mres):
+        if item:
+            raise ArgumentError.pyexc('Item not allowed for subdoc')
+
+        # Allocate the subdoc array
+        if not isinstance(value, tuple):
+            raise ArgumentError.pyexc('Value must be a tuple!')
+        if not len(value):
+            raise ArgumentError.pyexc('Need one or more commands')
+
+        speclist = ffi.new('lcb_SDSPEC[{0}]'.format(len(value)))
+
+        self.c_command.specs = speclist
+        self.c_command.nspecs = len(value)
+        self.c_command.cas = get_cas(key_options, global_options, item)
+        C._Cb_set_key(self.c_command, c_key, c_len)
+
+        bm = BufManager(ffi)
+
+        for i in xrange(len(speclist)):
+            pyspec = value[i]
+            cspec = speclist + i
+            self._process_spec(pyspec, cspec, bm)
+        return C.lcb_subdoc3(self.instance, mres._cdata, self.c_command)
+
+
+class SubdocLookupExecutor(SubdocExecutor):
+    def set_mres_flags(self, mres, kwargs):
+        set_quiet(mres, self.parent, kwargs)
+        super(SubdocLookupExecutor, self).set_mres_flags(mres, kwargs)
+
+
+class SubdocMutationExecutor(SubdocExecutor):
+    def set_mres_flags(self, mres, kwargs):
+        ok, persist, replicate = handle_durability(self.parent, **kwargs)
+        if ok:
+            mres._dur = (persist, replicate)
+        super(SubdocMutationExecutor, self).set_mres_flags(mres, kwargs)
+
+
 class UnlockExecutor(BaseExecutor):
     STRUCTNAME = 'lcb_CMDUNLOCK'
     VALUES_ALLOWED = True
@@ -758,6 +850,9 @@ class StatsExecutor(BaseExecutor):
 
         if not kv or not len(kv):
             kv = ['']
+
+        self.c_command.cmdflags = \
+            C.LCB_CMDSTATS_F_KV if kwargs.get('keystats') else 0
 
         for key in kv:
             C.memset(self.c_command, 0, ffi.sizeof(self.c_command[0]))
