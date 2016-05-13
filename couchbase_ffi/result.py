@@ -97,34 +97,29 @@ class ObserveInfo(object):
 
 
 class HttpResult(Result):
-    __slots__ = ['htcode', 'headers', 'done', 'http_data', 'fmt']
+    __slots__ = ['http_status', 'headers', 'done', 'value', 'fmt',
+                 '_parent', '_format']
     _fldprops = (PYCBC_RESFLD_URL | PYCBC_RESFLD_HTCODE | PYCBC_RESFLD_VALUE)
 
     def __init__(self):
         super(HttpResult, self).__init__()
-        self.htcode = 0
+        self.http_status = 0
         self.headers = {}
-        self.http_data = None
+        self.value = None
+        self.done = False
+        self._parent = None
 
     @property
     def url(self):
         return self.key
 
     @property
-    def value(self):
-        return self.http_data
-
-    @property
-    def http_status(self):
-        return self.htcode
-
-    @property
     def success(self):
         if self.rc:
             return False
-        if 300 > self.htcode > 199:
+        if 300 > self.http_status > 199:
             return True
-        if not self.htcode:
+        if not self.http_status:
             return True
         return False
 
@@ -175,6 +170,12 @@ class MultiResult(dict):
             e.all_results = self
             e.key = result.key
             e.result = result
+            self._add_err(sys.exc_info())
+
+    def _add_exc_wrap(self, *args, **kw):
+        try:
+            PyCBC.exc_common(*args, **kw)
+        except PyCBC.default_exception:
             self._add_err(sys.exc_info())
 
     def _decr_remaining(self):

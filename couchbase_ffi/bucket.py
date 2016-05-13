@@ -10,6 +10,7 @@ from couchbase_ffi.result import (
     MultiResult, ObserveInfo, ValueResult, AsyncResult, _SDResult
 )
 from couchbase_ffi.view import ViewResult
+from couchbase_ffi.n1ql import N1qlResult
 from couchbase_ffi.http import HttpRequest
 from couchbase_ffi.iops import IOPSWrapper
 from couchbase_ffi.lcbcntl import CNTL_VTYPE_MAP
@@ -139,7 +140,7 @@ class Bucket(object):
         # Private to cffi
         '_handles', '_lcbh', '_bound_cb', '_executors', '_iowrap',
         '__bucket', '_lock', '_lockmode', '_pipeline_queue',
-        '_embedref',
+        '_embedref', '_waiting',
 
         # Property holders
         '__default_format', '__quiet', '__connected', '__dtor_handle',
@@ -264,6 +265,7 @@ class Bucket(object):
         self._lockmode = lockmode if unlock_gil else LOCKMODE_NONE
         self._lock = Lock()
         self._pipeline_queue = None
+        self._waiting = False
 
         self._embedref = None
         InstanceReference.addref(self)
@@ -427,7 +429,11 @@ class Bucket(object):
     def _run_sync(self, mres):
         self._handles.add(mres)
         if self._pipeline_queue is None:
-            C.lcb_wait(self._lcbh)
+            self._waiting = True
+            try:
+                C.lcb_wait(self._lcbh)
+            finally:
+                self._waiting = False
             mres._maybe_throw()
         else:
             self._pipeline_queue.append(mres)
@@ -529,11 +535,14 @@ class Bucket(object):
 
     def _view_request(self, design, view, options, _flags=0):
         self._chk_no_pipeline('View requests not valid in pipeline mode')
-        res = ViewResult(design, view, options, _flags=_flags)
-        mres = self._make_mres()
-        mres[None] = res
-        res._schedule(self, mres)
-        return mres
+        return ViewResult.init_with_mres(
+            self._make_mres(), self,
+            design, view, options, _flags=_flags)
+
+    def _n1ql_query(self, body, adhoc):
+        self._chk_no_pipeline('N1ql queries not valid in pipeline mode')
+        return N1qlResult.init_with_mres(
+            self._make_mres(), self, body, adhoc)
 
     def _http_request(self, path, **kwargs):
         self._chk_no_pipeline('HTTP requests not valid in pipeline mode')
@@ -576,6 +585,10 @@ class Bucket(object):
     @property
     def _closed(self):
         return self._privflags & PYCBC_CONN_F_CLOSED
+
+    @property
+    def waiting(self):
+        return self._waiting
 
     def _close(self, is_async=False):
         if self._closed or not self._lcbh:

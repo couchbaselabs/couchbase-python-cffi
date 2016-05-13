@@ -68,7 +68,7 @@ class HttpRequest(HttpResult):
                 ix += 2
 
         result.rc = resp.rc
-        result.htcode = resp.htstatus
+        result.http_status = resp.htstatus
 
         if resp.rc:
             mres._add_bad_rc(resp.rc)
@@ -82,9 +82,9 @@ class HttpRequest(HttpResult):
             buf = bytes(ffi.buffer(ffi.cast('const char*', resp.body), resp.nbody))
             tc = self._parent._tc
             try:
-                result.http_data = tc.decode_value(buf, self._format)
+                result.value = tc.decode_value(buf, self._format)
             except:
                 if not self._quiet:
                     mres._add_err(sys.exc_info())
-                result.http_data = buf
+                result.value = buf
 

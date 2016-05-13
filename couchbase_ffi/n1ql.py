@@ -1,42 +1,43 @@
+import sys
+
 from couchbase_ffi._cinit import get_handle
-from couchbase_ffi._rtconfig import pycbc_exc_lcb
+from couchbase_ffi._rtconfig import pycbc_exc_lcb, PyCBC
 from couchbase_ffi.bufmanager import BufManager
+from couchbase_ffi.rowapi import RowResult
 
 ffi, C = get_handle()
 
-class _N1QLParams(object):
-    def __init__(self):
-        self._lp = ffi.gc(C.lcb_n1p_new(), C.lcb_n1p_free)
 
-    def setquery(self, query=None, type=C.LCB_N1P_QUERY_STATEMENT):
+class N1qlResult(RowResult):
+    def __init__(self, parent, params, prepare, mres=None):
+        super(N1qlResult, self).__init__(parent)
+        self._bound_cb = ffi.callback(
+            'void(lcb_t,int,lcb_RESPN1QL*)', self._on_single_row)
         bm = BufManager(ffi)
-        query = bm.new_cbuf(query)
-        rc = C.lcb_n1p_setquery(self._lp, bm.new_cstr(query), len(query), type)
+
+        cmd = ffi.new('lcb_CMDN1QL*')
+        cmd.query, cmd.nquery = bm.new_cbuf(params)
+        cmd.callback = self._bound_cb
+        if prepare:
+            cmd.cmdflags |= C.LCB_CMDN1QL_F_PREPCACHE
+        rc = C.lcb_n1ql_query(parent._lcbh, mres._cdata, cmd)
         if rc:
             raise pycbc_exc_lcb(rc)
 
-    def setoption(self, option, value):
-        bm = BufManager(ffi)
-        option = bm.new_cbuf(option)
-        value = bm.new_cbuf(value)
-        rc = C.lcb_n1p_setopt(self._lp, option, len(option), value, len(value))
-        if rc:
-            raise pycbc_exc_lcb(rc)
+    def _on_single_row(self, instance, cbtype, resp):
+        mres = ffi.from_handle(resp.cookie)
+        if resp.rflags & C.LCB_RESP_F_FINAL:
+            if resp.nrow:
+                self.value = bytes(ffi.buffer(resp.row, resp.nrow))
+            self._step(mres, True)
+            self._done(mres, resp.rc,
+                       resp.htresp.htstatus if resp.htresp else 0)
+        else:
+            # Simply parse the row
+            try:
+                row = PyCBC.json_decode(bytes(ffi.buffer(resp.row, resp.nrow)))
+                self.rows.append(row)
+            except:
+                mres._add_err(sys.exc_info())
 
-    def set_namedarg(self, arg, value):
-        bm = BufManager(ffi)
-        arg = bm.new_cbuf(arg)
-        value = bm.new_cbuf(value)
-        rc = C.lcb_n1p_namedparam(self._lp, arg, len(arg), value, len(value))
-        if rc:
-            raise pycbc_exc_lcb(rc)
-
-    def add_posarg(self, arg):
-        bm = BufManager(ffi)
-        arg = bm.new_cbuf(arg)
-        rc = C.lcb_n1p_posparam(self._lp, arg, len(arg))
-        if rc:
-            raise pycbc_exc_lcb(rc)
-
-    def clear(self):
-        C.lcb_n1p_reset(self._lp)
+        self._step(mres, False)

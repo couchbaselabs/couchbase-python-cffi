@@ -73,7 +73,6 @@ def _stage2_bootstrap():
         AsyncResult,
         _SDResult
     )
-    from couchbase_ffi.n1ql import _N1QLParams
 
     globals().update(locals())
     from couchbase_ffi.bucket import Bucket
