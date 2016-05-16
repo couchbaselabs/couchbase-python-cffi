@@ -103,7 +103,7 @@ pycbc_log_handler = None
 
 
 @ffi.def_extern()
-def _Cb_log_handlerPy(objid, subsys, severity, srcfile, srcline, msg):
+def CBFFI_log_handlerPy(objid, subsys, severity, srcfile, srcline, msg):
     if not pycbc_log_handler:
         return
     pycbc_log_handler({

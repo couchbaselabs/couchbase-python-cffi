@@ -459,8 +459,8 @@ class StorageExecutor(BaseExecutor):
         except Exception as ex:
             raise ValueFormatError.pyexc(str(value_format), inner=ex)
 
-        C._Cb_set_key(self.c_command, c_key, c_len)
-        C._Cb_set_val(self.c_command, s_val, len(v_enc))
+        C.CBFFI_set_key(self.c_command, c_key, c_len)
+        C.CBFFI_set_val(self.c_command, s_val, len(v_enc))
         if self.OPTYPE not in (C.LCB_APPEND, C.LCB_PREPEND):
             try:
                 self.c_command.flags = flags
@@ -514,7 +514,7 @@ class GetExecutor(BaseExecutor):
         if self.IS_LOCK and not ttl:
             raise ArgumentError.pyexc("Lock must have TTL")
 
-        C._Cb_set_key(self.c_command, c_key, c_len)
+        C.CBFFI_set_key(self.c_command, c_key, c_len)
         self.c_command.exptime = ttl
         self.c_command.lock = self.IS_LOCK
         return C.lcb_get3(self.instance, mres._cdata, self.c_command)
@@ -539,7 +539,7 @@ class GetReplicaExecutor(GetExecutor):
         else:
             self.c_command.strategy = C.LCB_REPLICA_FIRST
 
-        C._Cb_set_key(self.c_command, c_key, c_len)
+        C.CBFFI_set_key(self.c_command, c_key, c_len)
         return C.lcb_rget3(self.instance, mres._cdata, self.c_command)
 
 
@@ -566,7 +566,7 @@ class RemoveExecutor(BaseExecutor):
     def submit_single(self, c_key, c_len, value, item, key_options, global_options, mres):
         cas = get_cas(key_options, global_options, item)
         self.c_command.cas = cas
-        C._Cb_set_key(self.c_command, c_key, c_len)
+        C.CBFFI_set_key(self.c_command, c_key, c_len)
         return C.lcb_remove3(self.instance, mres._cdata, self.c_command)
 
 
@@ -584,7 +584,7 @@ class CounterExecutor(BaseExecutor):
         initial = get_option('initial', key_options, global_options)
         ttl = get_ttl(key_options, global_options)
 
-        C._Cb_set_key(self.c_command, c_key, c_len)
+        C.CBFFI_set_key(self.c_command, c_key, c_len)
         self.c_command.exptime = ttl
         self.c_command.delta = delta
         if initial is not None:
@@ -625,7 +625,7 @@ class SubdocExecutor(BaseExecutor):
 
         c_value, c_len = bm.new_cbuf(encoded)
         # print(cspec, c_value, c_len)
-        C._Cb_set_sdval(cspec, c_value, c_len)
+        C.CBFFI_set_sdval(cspec, c_value, c_len)
 
     def _process_spec(self, pyspec, cspec, bm):
         """
@@ -644,7 +644,7 @@ class SubdocExecutor(BaseExecutor):
                 if mkdir_p:
                     cspec.options = C.LCB_SDSPEC_F_MKINTERMEDIATES
 
-        C._Cb_set_sdpath(cspec, c_path, c_pathlen)
+        C.CBFFI_set_sdpath(cspec, c_path, c_pathlen)
         cspec.sdcmd = op
 
     def submit_single(self, c_key, c_len, value, item, key_options, global_options, mres):
@@ -662,7 +662,7 @@ class SubdocExecutor(BaseExecutor):
         self.c_command.specs = speclist
         self.c_command.nspecs = len(value)
         self.c_command.cas = get_cas(key_options, global_options, item)
-        C._Cb_set_key(self.c_command, c_key, c_len)
+        C.CBFFI_set_key(self.c_command, c_key, c_len)
 
         bm = BufManager(ffi)
 
@@ -696,7 +696,7 @@ class UnlockExecutor(BaseExecutor):
         if not cas:
             raise ArgumentError.pyexc("Must have CAS")
 
-        C._Cb_set_key(self.c_command, c_key, c_len)
+        C.CBFFI_set_key(self.c_command, c_key, c_len)
         self.c_command.cas = cas
         return C.lcb_unlock3(self.instance, mres._cdata, self.c_command)
 
@@ -718,7 +718,7 @@ class TouchExecutor(BaseExecutor):
                 ttl = get_ttl({'ttl': value}, None)
 
         self.c_command.exptime = ttl
-        C._Cb_set_key(self.c_command, c_key, c_len)
+        C.CBFFI_set_key(self.c_command, c_key, c_len)
         return C.lcb_touch3(self.instance, mres._cdata, self.c_command)
 
 
@@ -787,7 +787,7 @@ class DurabilityExecutor(MultiContextExecutor):
                 raise pycbc_exc_args('Bad CAS value', obj=cas)
 
         self.c_command.cas = cas
-        C._Cb_set_key(self.c_command, c_key, c_len)
+        C.CBFFI_set_key(self.c_command, c_key, c_len)
 
         # Add to the current context
         return ctx.addcmd(ctx, ffi.cast('lcb_CMDBASE*', self.c_command))
@@ -820,7 +820,7 @@ class ObserveExecutor(MultiContextExecutor):
 
     def submit_single(self, c_key, c_len, value, item, key_options, global_options, mres):
         ctx = global_options['_MCTX']
-        C._Cb_set_key(self.c_command, c_key, c_len)
+        C.CBFFI_set_key(self.c_command, c_key, c_len)
 
         if get_option('master_only', key_options, global_options):
             self.c_command.cmdflags |= C.LCB_CMDOBSERVE_F_MASTER_ONLY
@@ -839,7 +839,7 @@ class StatsExecutor(BaseExecutor):
         else:
             c_key, c_len = ffi.NULL, 0
 
-        C._Cb_set_key(self.c_command, c_key, c_len)
+        C.CBFFI_set_key(self.c_command, c_key, c_len)
         rc = C.lcb_stats3(self.instance, mres._cdata, self.c_command)
         if rc:
             raise pycbc_exc_lcb(rc)

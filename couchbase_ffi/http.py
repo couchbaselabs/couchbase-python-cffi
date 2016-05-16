@@ -37,7 +37,7 @@ class HttpRequest(HttpResult):
             cmd.type = self._type
             cmd.method = method
 
-            C._Cb_set_key(cmd, *bm.new_cbuf(path))
+            C.CBFFI_set_key(cmd, *bm.new_cbuf(path))
             cmd.body, cmd.nbody = bm.new_cbuf(post_data)
             cmd.content_type = bm.new_cstr(content_type)
             rc = C.lcb_http3(parent._lcbh, mres._cdata, cmd)

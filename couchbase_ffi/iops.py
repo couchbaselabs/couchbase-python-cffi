@@ -27,13 +27,13 @@ class IOEvent(Event):
         self.fd = -1
 
     def ready_r(self):
-        C._Cb_do_callback(self.fd, LCB_READ_EVENT, self._c_callback, self._c_arg)
+        C.CBFFI_do_callback(self.fd, LCB_READ_EVENT, self._c_callback, self._c_arg)
 
     def ready_w(self):
-        C._Cb_do_callback(self.fd, LCB_WRITE_EVENT, self._c_callback, self._c_arg)
+        C.CBFFI_do_callback(self.fd, LCB_WRITE_EVENT, self._c_callback, self._c_arg)
 
     def ready(self, flags):
-        C._Cb_do_callback(self.fd, flags, self._c_callback, self._c_arg)
+        C.CBFFI_do_callback(self.fd, flags, self._c_callback, self._c_arg)
 
     def fileno(self):
         return self.fd
@@ -41,7 +41,7 @@ class IOEvent(Event):
 
 class TimerEvent(Event):
     def ready(self, *_):
-        C._Cb_do_callback(0, 0, self._c_callback, self._c_arg)
+        C.CBFFI_do_callback(0, 0, self._c_callback, self._c_arg)
 
 
 def to_pyio(fn):

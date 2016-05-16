@@ -648,7 +648,7 @@ class Bucket(object):
             return
         mt = C.lcb_resp_get_mutation_token(optype, rb)
         if mt != ffi.NULL:
-            mt = (C._Cb_mt_vb(mt), C._Cb_mt_uuid(mt), C._Cb_mt_seq(mt),
+            mt = (C.CBFFI_mt_vb(mt), C.CBFFI_mt_uuid(mt), C.CBFFI_mt_seq(mt),
                   self.__bucket)
             result._mutinfo = mt
 
@@ -880,7 +880,7 @@ class Bucket(object):
             mt = C.lcb_get_mutation_token(self._lcbh, kb, ffi.NULL)
             if not mt:
                 continue
-            ll.append((C._Cb_mt_vb(mt), C._Cb_mt_uuid(mt), C._Cb_mt_seq(mt)))
+            ll.append((C.CBFFI_mt_vb(mt), C.CBFFI_mt_uuid(mt), C.CBFFI_mt_seq(mt)))
 
         return ll
 

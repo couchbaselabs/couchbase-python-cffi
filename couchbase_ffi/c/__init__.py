@@ -16,23 +16,23 @@ CPP_INPUT = """
 #include <libcouchbase/views.h>
 #include <libcouchbase/n1ql.h>
 
-void _Cb_set_key(void*,const void*, size_t);
-void _Cb_set_val(void*,const void*, size_t);
-void _Cb_set_sdpath(lcb_SDSPEC*, const void*, size_t);
-void _Cb_set_sdval(lcb_SDSPEC*, const void*, size_t);
-void _Cb_do_callback(lcb_socket_t s, short events, lcb_ioE_callback cb, void *arg);
-uint64_t _Cb_mt_seq(const lcb_MUTATION_TOKEN*);
-uint64_t _Cb_mt_uuid(const lcb_MUTATION_TOKEN*);
-uint16_t _Cb_mt_vb(const lcb_MUTATION_TOKEN*);
+void CBFFI_set_key(void*,const void*, size_t);
+void CBFFI_set_val(void*,const void*, size_t);
+void CBFFI_set_sdpath(lcb_SDSPEC*, const void*, size_t);
+void CBFFI_set_sdval(lcb_SDSPEC*, const void*, size_t);
+void CBFFI_do_callback(lcb_socket_t s, short events, lcb_ioE_callback cb, void *arg);
+uint64_t CBFFI_mt_seq(const lcb_MUTATION_TOKEN*);
+uint64_t CBFFI_mt_uuid(const lcb_MUTATION_TOKEN*);
+uint16_t CBFFI_mt_vb(const lcb_MUTATION_TOKEN*);
 void memset(void*,int,int);
 typedef struct lcbvb_CONFIG_s lcbvb_CONFIG;
 int vbucket_config_get_num_vbuckets(lcbvb_CONFIG*);
 
-void _Cb_log_handlerV(struct lcb_logprocs_st *procs, unsigned int iid,
+void CBFFI_log_handlerV(struct lcb_logprocs_st *procs, unsigned int iid,
     const char *subsys, int severity, const char *srcfile, int srcline,
     const char *fmt, va_list ap);
 
-extern "Python" void _Cb_log_handlerPy (unsigned int iid, const char *subsys,
+extern "Python" void CBFFI_log_handlerPy (unsigned int iid, const char *subsys,
     int severity, const char *srcfile, int srcline, const char *msg);
 """
 
@@ -47,34 +47,34 @@ VERIFY_INPUT = """
 #include <libcouchbase/n1ql.h>
 #include <libcouchbase/vbucket.h>
 
-void _Cb_set_key(void *cmd, const void *key, size_t nkey) {
+void CBFFI_set_key(void *cmd, const void *key, size_t nkey) {
     LCB_CMD_SET_KEY((lcb_CMDBASE*)cmd, key, nkey);
 }
-void _Cb_set_val(void *cmd, const void *val, size_t nval) {
+void CBFFI_set_val(void *cmd, const void *val, size_t nval) {
     LCB_CMD_SET_VALUE((lcb_CMDSTORE*)cmd, val, nval);
 }
-void _Cb_set_sdpath(lcb_SDSPEC *spec, const void *path, size_t npath) {
+void CBFFI_set_sdpath(lcb_SDSPEC *spec, const void *path, size_t npath) {
     LCB_SDSPEC_SET_PATH(spec, path, npath);
 }
-void _Cb_set_sdval(lcb_SDSPEC *spec, const void *val, size_t nval) {
+void CBFFI_set_sdval(lcb_SDSPEC *spec, const void *val, size_t nval) {
     LCB_SDSPEC_SET_VALUE(spec, val, nval);
 }
-void _Cb_do_callback(lcb_socket_t s, short events, lcb_ioE_callback cb, void *arg) {
+void CBFFI_do_callback(lcb_socket_t s, short events, lcb_ioE_callback cb, void *arg) {
     cb(s, events, arg);
 }
-uint64_t _Cb_mt_seq(const lcb_MUTATION_TOKEN *mt) {
+uint64_t CBFFI_mt_seq(const lcb_MUTATION_TOKEN *mt) {
     return LCB_MUTATION_TOKEN_SEQ(mt);
 }
-uint64_t _Cb_mt_uuid(const lcb_MUTATION_TOKEN *mt) {
+uint64_t CBFFI_mt_uuid(const lcb_MUTATION_TOKEN *mt) {
     return LCB_MUTATION_TOKEN_ID(mt);
 }
-uint16_t _Cb_mt_vb(const lcb_MUTATION_TOKEN *mt) {
+uint16_t CBFFI_mt_vb(const lcb_MUTATION_TOKEN *mt) {
     return LCB_MUTATION_TOKEN_VB(mt);
 }
 
-static void _Cb_log_handlerPy (unsigned int iid, const char *subsys,
+static void CBFFI_log_handlerPy (unsigned int iid, const char *subsys,
     int severity, const char *srcfile, int srcline, const char *msg);
-static void _Cb_log_handlerV(struct lcb_logprocs_st *procs, unsigned int iid,
+static void CBFFI_log_handlerV(struct lcb_logprocs_st *procs, unsigned int iid,
     const char *subsys, int severity, const char *srcfile, int srcline,
     const char *fmt, va_list ap) {
 
@@ -84,7 +84,7 @@ static void _Cb_log_handlerV(struct lcb_logprocs_st *procs, unsigned int iid,
     va_copy(apcp, ap);
     vsnprintf(buf, sizeof buf, fmt, apcp);
     va_end(apcp);
-    _Cb_log_handlerPy(iid, subsys, severity, srcfile, srcline, buf);
+    CBFFI_log_handlerPy(iid, subsys, severity, srcfile, srcline, buf);
 }
 """
 
@@ -249,7 +249,7 @@ def get_handle():
 ''')
 
     tmp_ffi.set_source(
-        'couchbase_ffi.c.compiled',
+        'couchbase_ffi._dso',
         VERIFY_INPUT,
         libraries=['couchbase'],
         library_dirs=[os.path.join(LCB_ROOT, 'lib')],
@@ -259,5 +259,5 @@ def get_handle():
     if __name__ == '__main__' or os.environ.get('PYCBC_CFFI_REGENERATE'):
         tmp_ffi.compile()
 
-    from couchbase_ffi.c.compiled import ffi, lib
+    from couchbase_ffi._dso import ffi, lib
     return ffi, lib
