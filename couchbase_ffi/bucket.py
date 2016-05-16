@@ -5,7 +5,7 @@ from threading import Lock
 
 from couchbase._pyport import xrange
 
-from couchbase_ffi._cinit import get_handle
+from couchbase_ffi.c import get_handle
 from couchbase_ffi.result import (
     MultiResult, ObserveInfo, ValueResult, AsyncResult, _SDResult
 )

@@ -1,4 +1,4 @@
-from couchbase_ffi._cinit import get_handle
+from couchbase_ffi.c import get_handle
 from sys import version_info
 
 

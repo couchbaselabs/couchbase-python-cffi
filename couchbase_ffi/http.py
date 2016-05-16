@@ -1,6 +1,6 @@
 import sys
 
-from couchbase_ffi._cinit import get_handle
+from couchbase_ffi.c import get_handle
 from couchbase_ffi._rtconfig import PyCBC
 from couchbase_ffi.constants import FMT_JSON
 from couchbase_ffi.result import HttpResult

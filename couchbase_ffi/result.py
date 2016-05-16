@@ -4,7 +4,7 @@ from couchbase_ffi.constants import (
     PYCBC_RESFLD_CAS, PYCBC_RESFLD_KEY, PYCBC_RESFLD_VALUE,
     PYCBC_RESFLD_HTCODE, PYCBC_RESFLD_URL)
 
-from couchbase_ffi._cinit import get_handle
+from couchbase_ffi.c import get_handle
 from couchbase_ffi._rtconfig import PyCBC, pycbc_exc_lcb
 from couchbase_ffi._strutil import from_cstring
 

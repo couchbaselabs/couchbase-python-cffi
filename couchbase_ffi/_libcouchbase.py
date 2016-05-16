@@ -1,6 +1,6 @@
 from __future__ import print_function
 from couchbase_ffi._rtconfig import PyCBC
-from couchbase_ffi._cinit import get_handle
+from couchbase_ffi.c import get_handle
 from couchbase_ffi._strutil import from_cstring
 import couchbase_ffi.constants as constants
 

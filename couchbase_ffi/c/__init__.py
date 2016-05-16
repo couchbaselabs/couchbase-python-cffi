@@ -224,6 +224,7 @@ def ensure_header():
 
 lib, ffi = None, None
 
+
 # Return ffi, lib
 def get_handle():
     global lib
@@ -248,7 +249,7 @@ def get_handle():
 ''')
 
     tmp_ffi.set_source(
-        'couchbase_ffi._dso',
+        'couchbase_ffi.c.compiled',
         VERIFY_INPUT,
         libraries=['couchbase'],
         library_dirs=[os.path.join(LCB_ROOT, 'lib')],
@@ -258,5 +259,5 @@ def get_handle():
     if __name__ == '__main__' or os.environ.get('PYCBC_CFFI_REGENERATE'):
         tmp_ffi.compile()
 
-    from couchbase_ffi._dso import ffi, lib
+    from couchbase_ffi.c.compiled import ffi, lib
     return ffi, lib

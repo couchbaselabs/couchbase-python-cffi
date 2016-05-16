@@ -1,4 +1,4 @@
-from couchbase_ffi._cinit import get_handle
+from couchbase_ffi.c import get_handle
 from couchbase_ffi.constants import (
     PYCBC_EVACTION_WATCH, PYCBC_EVACTION_UNWATCH,
     PYCBC_EVACTION_CLEANUP, PYCBC_EVSTATE_ACTIVE,

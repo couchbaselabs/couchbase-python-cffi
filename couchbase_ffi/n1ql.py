@@ -1,6 +1,6 @@
 import sys
 
-from couchbase_ffi._cinit import get_handle
+from couchbase_ffi.c import get_handle
 from couchbase_ffi._rtconfig import pycbc_exc_lcb, PyCBC
 from couchbase_ffi.bufmanager import BufManager
 from couchbase_ffi.rowapi import RowResult

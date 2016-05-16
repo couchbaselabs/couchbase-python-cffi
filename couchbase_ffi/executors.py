@@ -6,7 +6,7 @@ from couchbase.items import ItemCollection
 
 from couchbase_ffi.result import (OperationResult, ValueResult, _SDResult, Item)
 from couchbase_ffi.constants import FMT_UTF8, FMT_JSON
-from couchbase_ffi._cinit import get_handle
+from couchbase_ffi.c import get_handle
 from couchbase_ffi._rtconfig import pycbc_exc_lcb, pycbc_exc_enc, pycbc_exc_args, PyCBC
 from couchbase_ffi.bufmanager import BufManager
 

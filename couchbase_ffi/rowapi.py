@@ -2,7 +2,7 @@ import sys
 
 from couchbase_ffi.result import HttpResult, AsyncResult
 from couchbase_ffi.constants import FMT_JSON, PYCBC_EXC_HTTP
-from couchbase_ffi._cinit import get_handle
+from couchbase_ffi.c import get_handle
 
 ffi, C = get_handle()
 
